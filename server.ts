@@ -73,7 +73,7 @@ async function log(msg: string): Promise<void> {
 }
 
 async function runNow(trigger: string): Promise<{ started: boolean; reason?: string }> {
-  if (running) return { started: false, reason: 'già in esecuzione' };
+  if (running) return { started: false, reason: 'already running' };
   running = true;
   void log(`--- Run (${trigger}) ---`);
   try {
@@ -131,7 +131,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       'WWW-Authenticate': 'Basic realm="Plaud Poller", charset="UTF-8"',
       'Content-Type': 'text/plain; charset=utf-8',
     });
-    res.end('Autenticazione richiesta');
+    res.end('Authentication required');
     return;
   }
 
@@ -183,7 +183,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       settings = sanitizeSettings(incoming);
       await saveSettings(settings);
       schedule(); // applica subito il nuovo intervallo
-      void log(`Impostazioni aggiornate (intervallo ${settings.pollIntervalMin} min, webhook ${settings.webhook.enabled ? 'ON' : 'OFF'})`);
+      void log(`Settings updated (interval ${settings.pollIntervalMin} min, webhook ${settings.webhook.enabled ? 'ON' : 'OFF'})`);
       sendJson(res, 200, settings);
     } catch (err) {
       sendJson(res, 400, { error: (err as Error).message });
@@ -192,7 +192,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 
   if (p === '/api/run' && method === 'POST') {
-    const r = await runNow('manuale'); // non await-iamo il polling completo? lo facciamo: e' ok
+    const r = await runNow('manual');
     sendJson(res, 200, r);
     return;
   }
@@ -204,11 +204,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
 async function main(): Promise<void> {
   settings = await loadSettings();
-  await log(`Avvio GUI su http://0.0.0.0:${PORT} — output: ${settings.outputDir}, region: ${settings.region}`);
+  await log(`Starting GUI at http://0.0.0.0:${PORT} — output: ${settings.outputDir}, region: ${settings.region}`);
   await log(
     AUTH_ENABLED
-      ? `Auth Basic ATTIVA (utente: ${GUI_USER})`
-      : `Auth DISATTIVA (imposta PLAUD_GUI_PASSWORD per proteggere la GUI)`,
+      ? `HTTP Basic auth enabled (user: ${GUI_USER})`
+      : `Auth disabled (set PLAUD_GUI_PASSWORD to protect the GUI)`,
   );
 
   const server = http.createServer((req, res) => {
@@ -223,7 +223,7 @@ async function main(): Promise<void> {
   server.listen(PORT, '0.0.0.0');
 
   // primo run poco dopo l'avvio, poi schedulato
-  setTimeout(() => void runNow('avvio'), 4000);
+  setTimeout(() => void runNow('startup'), 4000);
   schedule();
 }
 

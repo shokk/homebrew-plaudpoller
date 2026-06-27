@@ -4,14 +4,13 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "grab-token": "tsx plaud-grab-token.ts",
     "login": "tsx plaud-login.ts",
     "poll": "tsx plaud-poller.ts",
     "start": "tsx server.ts",
     "update-core": "git submodule update --remote poller/plaud-toolkit"
   },
-  "dependencies": {
-    "@plaud/core": "file:./plaud-toolkit/packages/core"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/node": "^26.0.1",
     "tsx": "^4.19.0",

@@ -1,5 +1,5 @@
 
-import { PlaudConfig, PlaudAuth, PlaudClient } from '@plaud/core';
+import { PlaudConfig, PlaudAuth, PlaudClient } from './src/core/index.js';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -81,7 +81,7 @@ async function convertToM4a(mp3Path: string, log: Logger): Promise<string> {
     await fs.unlink(mp3Path);
     return m4aPath;
   } catch (err) {
-    log(`  conversione m4a fallita (${(err as Error).message}); mantengo mp3`);
+    log(`  m4a conversion failed (${(err as Error).message}); keeping mp3`);
     return mp3Path;
   }
 }
@@ -103,7 +103,7 @@ async function downloadAudioTo(
       if (s.audioFormat === 'm4a') return convertToM4a(mp3Dest, log);
       return mp3Dest;
     }
-    log(`  mp3 url non disponibile per ${id}, fallback a original`);
+    log(`  mp3 url not available for ${id}, falling back to original`);
   }
   const ab = await client.downloadAudio(id);
   const dest = path.join(destDir, 'audio.bin');
@@ -131,7 +131,7 @@ async function chunkAudio(audioPath: string, destDir: string, minutes: number, l
       path.join(chunkDir, `chunk_%03d${path.extname(audioPath)}`),
     ]);
   } catch (err) {
-    log(`  chunking ffmpeg fallito (${(err as Error).message}); proseguo senza chunk`);
+    log(`  ffmpeg chunking failed (${(err as Error).message}); skipping chunks`);
     return [];
   }
   const ext = path.extname(audioPath);
@@ -162,8 +162,8 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
   await fs.mkdir(s.outputDir, { recursive: true });
 
   const config = new PlaudConfig(CONFIG_DIR);
-  if (!config.getCredentials()) {
-    throw new Error(`Nessuna credenziale in ${path.join(CONFIG_DIR, 'config.json')}. Esegui prima il login.`);
+  if (!config.getCredentials() && !config.getToken()) {
+    throw new Error(`No credentials found in ${path.join(CONFIG_DIR, 'config.json')}. Run \`npm run grab-token\` first.`);
   }
   const auth = new PlaudAuth(config);
   const client = new PlaudClient(auth, s.region);
@@ -171,7 +171,7 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
 
   const state = await loadState(s);
   const recordings = await client.listRecordings();
-  log(`Trovate ${recordings.length} registrazioni nel cloud Plaud.`);
+  log(`Found ${recordings.length} recordings in Plaud cloud.`);
 
   const result: PollResult = { found: recordings.length, added: 0, notified: 0, errors: 0, tracked: 0 };
 
@@ -180,13 +180,13 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
     if (state.processed[rec.id]) continue;
 
     try {
-      log(`Nuova: ${rec.id} "${rec.filename}" (${Math.round(rec.duration / 1000)}s)`);
+      log(`New: ${rec.id} "${rec.filename}" (${Math.round(rec.duration / 1000)}s)`);
       const dir = recordingDir(s, rec);
       await fs.mkdir(dir, { recursive: true });
 
       const audioFile = await downloadAudioTo(client, s, rec.id, dir, log);
       const chunks = await chunkAudio(audioFile, dir, s.chunkMinutes, log);
-      if (chunks.length) log(`  ${chunks.length} chunk audio generati`);
+      if (chunks.length) log(`  ${chunks.length} audio chunks created`);
       const detail = await client.getRecording(rec.id);
       await fs.writeFile(path.join(dir, 'metadata.json'), JSON.stringify(detail, null, 2), 'utf8');
       if (detail.transcript) await fs.writeFile(path.join(dir, 'transcript.txt'), detail.transcript, 'utf8');
@@ -207,7 +207,7 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
       };
       await saveState(s, state);
       result.added++;
-      log(`  salvata in ${dir}`);
+      log(`  saved to ${dir}`);
     } catch (err) {
       result.errors++;
       log(`  ERRORE su ${rec.id}: ${(err as Error).message}`);
@@ -233,16 +233,16 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
         entry.notified = true;
         await saveState(s, state);
         result.notified++;
-        log(`  webhook OK: ${entry.id}`);
+        log(`  webhook ok: ${entry.id}`);
       } catch (err) {
         result.errors++;
-        log(`  webhook ERRORE ${entry.id}: ${(err as Error).message}`);
+        log(`  webhook error ${entry.id}: ${(err as Error).message}`);
       }
     }
   }
 
   result.tracked = Object.keys(state.processed).length;
-  log(`Fatto. Nuove: ${result.added}, notificate: ${result.notified}, errori: ${result.errors}, tracciate: ${result.tracked}`);
+  log(`Done. New: ${result.added}, notified: ${result.notified}, errors: ${result.errors}, tracked: ${result.tracked}`);
   return result;
 }
 

@@ -1,5 +1,5 @@
 
-import { PlaudConfig, PlaudAuth } from '@plaud/core';
+import { PlaudConfig, PlaudAuth } from './src/core/index.js';
 import * as os from 'node:os';
 import * as path from 'node:path';
 

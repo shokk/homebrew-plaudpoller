@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build binaries
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build arm64
+        run: bun build --compile --target=bun-darwin-arm64 src/cli.ts --outfile dist/plaud-arm64
+
+      - name: Build x64
+        run: bun build --compile --target=bun-darwin-x64 src/cli.ts --outfile dist/plaud-x64
+
+      - name: Compute SHA256
+        id: sha
+        run: |
+          echo "arm64=$(shasum -a 256 dist/plaud-arm64 | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "x64=$(shasum -a 256 dist/plaud-x64 | awk '{print $1}')" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/plaud-arm64
+            dist/plaud-x64
+          body: |
+            ## SHA256 checksums
+
+            | Binary | SHA256 |
+            |--------|--------|
+            | `plaud-arm64` | `${{ steps.sha.outputs.arm64 }}` |
+            | `plaud-x64`   | `${{ steps.sha.outputs.x64 }}` |
