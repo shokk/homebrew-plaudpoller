@@ -1,0 +1,24 @@
+{
+  "name": "plaud-poller",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "login": "tsx plaud-login.ts",
+    "poll": "tsx plaud-poller.ts",
+    "start": "tsx server.ts",
+    "update-core": "git submodule update --remote poller/plaud-toolkit"
+  },
+  "dependencies": {
+    "@plaud/core": "file:./plaud-toolkit/packages/core"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.3.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "fsevents@2.3.3": true
+  }
+}
