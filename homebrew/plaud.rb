@@ -7,17 +7,17 @@
 
 class Plaud < Formula
   desc "Poll and download recordings from Plaud.ai"
-  homepage "https://github.com/eoporto/PlaudPoller"
+  homepage "https://github.com/shokk/PlaudPoller"
   version "1.0.0"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/eoporto/PlaudPoller/releases/download/v#{version}/plaud-arm64"
-      sha256 "PLACEHOLDER_ARM64_SHA256"
+      url "https://github.com/shokk/PlaudPoller/releases/download/v#{version}/plaud-arm64"
+      sha256 "3c444e64a9566aaa04b5d4b4044362b1ecc3f492159f219a04962a7c96a7a5f7"
     else
-      url "https://github.com/eoporto/PlaudPoller/releases/download/v#{version}/plaud-x64"
-      sha256 "PLACEHOLDER_X64_SHA256"
+      url "https://github.com/shokk/PlaudPoller/releases/download/v#{version}/plaud-x64"
+      sha256 "09f67f29f30c258b9cd407c1cf35f86bc94ffb322f481d78903368c1635a10ab"
     end
   end
 
