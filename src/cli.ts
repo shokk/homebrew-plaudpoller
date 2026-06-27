@@ -1,17 +1,27 @@
 #!/usr/bin/env node
 /**
- * Unified CLI entrypoint for the `plaud` binary.
+ * Unified CLI entrypoint for the `plaudpoller` binary.
  *
  * Usage:
- *   plaud grab-token   — capture Google auth token via Chrome
- *   plaud poll         — run one poll cycle and exit
- *   plaud serve        — start the web GUI + scheduler
+ *   plaudpoller grab-token   — capture Google auth token via Chrome
+ *   plaudpoller poll         — run one poll cycle and exit
+ *   plaudpoller serve        — start the web GUI + scheduler
  */
+
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { version } = require('../package.json') as { version: string };
 
 const [, , cmd, ...args] = process.argv;
 
 async function main(): Promise<void> {
   switch (cmd) {
+    case 'version':
+    case '-v':
+    case '--version': {
+      console.log(version);
+      break;
+    }
     case 'grab-token': {
       const { main: grabToken } = await import('../plaud-grab-token.js');
       await grabToken();
@@ -55,6 +65,7 @@ Commands:
   login        Authenticate with email/password (set PLAUD_EMAIL and PLAUD_PASSWORD)
   poll         Run one poll cycle and exit
   serve        Start the web GUI + background scheduler (default port 8787)
+  version      Print version number
 `);
       process.exit(cmd ? 1 : 0);
     }
