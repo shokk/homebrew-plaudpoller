@@ -22,7 +22,11 @@ async function main(): Promise<void> {
   console.log(`Login OK. Token (primi 12): ${token.slice(0, 12)}...`);
 }
 
-main().catch((err) => {
-  console.error(`Login FALLITO: ${(err as Error).message}`);
-  process.exit(1);
-});
+export { main };
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => {
+    console.error(`Login FALLITO: ${(err as Error).message}`);
+    process.exit(1);
+  });
+}

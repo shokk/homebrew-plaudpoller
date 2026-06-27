@@ -36,6 +36,11 @@ async function main(): Promise<void> {
       if (res.errors > 0) process.exitCode = 1;
       break;
     }
+    case 'login': {
+      const { main: login } = await import('../plaud-login.js');
+      await login();
+      break;
+    }
     case 'serve': {
       // server.ts has a self-executing main — just import it.
       await import('../server.js');
@@ -47,6 +52,7 @@ async function main(): Promise<void> {
 
 Commands:
   grab-token   Capture Google auth token via Chrome (run once to authenticate)
+  login        Authenticate with email/password (set PLAUD_EMAIL and PLAUD_PASSWORD)
   poll         Run one poll cycle and exit
   serve        Start the web GUI + background scheduler (default port 8787)
 `);
