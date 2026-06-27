@@ -8,9 +8,8 @@
  *   plaudpoller serve        — start the web GUI + scheduler
  */
 
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const { version } = require('../package.json') as { version: string };
+import pkg from '../package.json' with { type: 'json' };
+const version = pkg.version;
 
 const [, , cmd, ...args] = process.argv;
 
