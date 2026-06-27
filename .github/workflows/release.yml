@@ -22,27 +22,27 @@ jobs:
         run: bun install
 
       - name: Build arm64
-        run: bun build --compile --target=bun-darwin-arm64 src/cli.ts --outfile dist/plaud-arm64
+        run: bun build --compile --target=bun-darwin-arm64 src/cli.ts --outfile dist/plaudpoller-arm64
 
       - name: Build x64
-        run: bun build --compile --target=bun-darwin-x64 src/cli.ts --outfile dist/plaud-x64
+        run: bun build --compile --target=bun-darwin-x64 src/cli.ts --outfile dist/plaudpoller-x64
 
       - name: Compute SHA256
         id: sha
         run: |
-          echo "arm64=$(shasum -a 256 dist/plaud-arm64 | awk '{print $1}')" >> $GITHUB_OUTPUT
-          echo "x64=$(shasum -a 256 dist/plaud-x64 | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "arm64=$(shasum -a 256 dist/plaudpoller-arm64 | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "x64=$(shasum -a 256 dist/plaudpoller-x64 | awk '{print $1}')" >> $GITHUB_OUTPUT
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/plaud-arm64
-            dist/plaud-x64
+            dist/plaudpoller-arm64
+            dist/plaudpoller-x64
           body: |
             ## SHA256 checksums
 
             | Binary | SHA256 |
             |--------|--------|
-            | `plaud-arm64` | `${{ steps.sha.outputs.arm64 }}` |
-            | `plaud-x64`   | `${{ steps.sha.outputs.x64 }}` |
+            | `plaudpoller-arm64` | `${{ steps.sha.outputs.arm64 }}` |
+            | `plaudpoller-x64`   | `${{ steps.sha.outputs.x64 }}` |

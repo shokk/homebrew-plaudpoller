@@ -1,11 +1,11 @@
-# Place this file at Formula/plaud.rb in a repo named homebrew-plaud
-# (github.com/eoporto/homebrew-plaud)
+# Place this file at Formula/plaudpoller.rb in a repo named homebrew-plaud
+# (github.com/shokk/homebrew-plaud)
 #
 # Users install with:
-#   brew tap eoporto/plaud
-#   brew install plaud
+#   brew tap shokk/plaud
+#   brew install plaudpoller
 
-class Plaud < Formula
+class Plaudpoller < Formula
   desc "Poll and download recordings from Plaud.ai"
   homepage "https://github.com/shokk/PlaudPoller"
   version "1.0.0"
@@ -13,20 +13,20 @@ class Plaud < Formula
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/shokk/PlaudPoller/releases/download/v#{version}/plaud-arm64"
-      sha256 "3c444e64a9566aaa04b5d4b4044362b1ecc3f492159f219a04962a7c96a7a5f7"
+      url "https://github.com/shokk/PlaudPoller/releases/download/v#{version}/plaudpoller-arm64"
+      sha256 "PLACEHOLDER_ARM64_SHA256"
     else
-      url "https://github.com/shokk/PlaudPoller/releases/download/v#{version}/plaud-x64"
-      sha256 "09f67f29f30c258b9cd407c1cf35f86bc94ffb322f481d78903368c1635a10ab"
+      url "https://github.com/shokk/PlaudPoller/releases/download/v#{version}/plaudpoller-x64"
+      sha256 "PLACEHOLDER_X64_SHA256"
     end
   end
 
   def install
-    binary = Hardware::CPU.arm? ? "plaud-arm64" : "plaud-x64"
-    bin.install binary => "plaud"
+    binary = Hardware::CPU.arm? ? "plaudpoller-arm64" : "plaudpoller-x64"
+    bin.install binary => "plaudpoller"
   end
 
   test do
-    assert_match "Usage: plaud", shell_output("#{bin}/plaud 2>&1", 0)
+    assert_match "Usage: plaudpoller", shell_output("#{bin}/plaudpoller 2>&1", 0)
   end
 end

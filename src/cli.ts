@@ -43,7 +43,7 @@ async function main(): Promise<void> {
     }
     default: {
       const name = cmd ? `Unknown command: ${cmd}\n\n` : '';
-      console.error(`${name}Usage: plaud <command>
+      console.error(`${name}Usage: plaudpoller <command>
 
 Commands:
   grab-token   Capture Google auth token via Chrome (run once to authenticate)
