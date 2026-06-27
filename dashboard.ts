@@ -1,7 +1,7 @@
-/** dashboard.ts — pagina HTML della GUI (servita da server.ts). */
+/** dashboard.ts — HTML for the GUI served by server.ts */
 
 export const DASHBOARD_HTML = /* html */ `<!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -62,19 +62,19 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
 <header>
   <h1>🎙️ Plaud Poller</h1>
   <div class="badges" id="badges"></div>
-  <button class="primary" id="runBtn" onclick="runNow()">Esegui ora</button>
+  <button class="primary" id="runBtn" onclick="runNow()">Run now</button>
 </header>
 <main>
   <div class="panel">
-    <h2>Stato</h2>
+    <h2>Status</h2>
     <div class="stats" id="stats"></div>
   </div>
 
   <div class="grid">
     <div class="panel">
-      <h2>Impostazioni</h2>
+      <h2>Settings</h2>
       <form id="settingsForm" onsubmit="saveSettings(event)">
-        <label>Cartella output (NFS)</label>
+        <label>Output folder</label>
         <input type="text" name="outputDir" />
         <div class="grid" style="gap:12px">
           <div>
@@ -82,24 +82,24 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
             <select name="region"><option value="eu">eu</option><option value="us">us</option></select>
           </div>
           <div>
-            <label>Formato audio</label>
-            <select name="audioFormat"><option value="mp3">mp3</option><option value="original">original</option></select>
+            <label>Audio format</label>
+            <select name="audioFormat"><option value="mp3">mp3</option><option value="m4a">m4a</option><option value="original">original</option></select>
           </div>
         </div>
-        <label>Intervallo polling (minuti)</label>
+        <label>Poll interval (minutes)</label>
         <input type="number" name="pollIntervalMin" min="1" max="1440" />
-        <div class="row"><input type="checkbox" id="includeTrash" name="includeTrash" /><label for="includeTrash">Includi cestino</label></div>
+        <div class="row"><input type="checkbox" id="includeTrash" name="includeTrash" /><label for="includeTrash">Include trash</label></div>
 
-        <h2 style="margin-top:18px">Webhook (n8n)</h2>
-        <div class="row"><input type="checkbox" id="whEnabled" name="webhook.enabled" /><label for="whEnabled">Abilita invio webhook</label></div>
-        <label>URL webhook</label>
-        <input type="text" name="webhook.url" placeholder="https://n8n.tuodominio/webhook/plaud" />
-        <label>Modalità</label>
-        <select name="webhook.mode"><option value="metadata">metadata (JSON con path NFS)</option><option value="multipart">multipart (futuro)</option></select>
+        <h2 style="margin-top:18px">Webhook</h2>
+        <div class="row"><input type="checkbox" id="whEnabled" name="webhook.enabled" /><label for="whEnabled">Enable webhook</label></div>
+        <label>Webhook URL</label>
+        <input type="text" name="webhook.url" placeholder="https://your-domain/webhook/plaud" />
+        <label>Mode</label>
+        <select name="webhook.mode"><option value="metadata">metadata (JSON with local path)</option><option value="multipart">multipart (future)</option></select>
 
         <div class="save-row">
-          <button class="primary" type="submit">Salva impostazioni</button>
-          <span class="saved" id="saved">✓ salvato</span>
+          <button class="primary" type="submit">Save settings</button>
+          <span class="saved" id="saved">✓ Saved</span>
         </div>
       </form>
     </div>
@@ -111,9 +111,9 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
   </div>
 
   <div class="panel">
-    <h2>Registrazioni tracciate</h2>
+    <h2>Tracked recordings</h2>
     <table>
-      <thead><tr><th>Data</th><th>Nome</th><th>Durata</th><th>Transcript</th><th>Notificata</th></tr></thead>
+      <thead><tr><th>Date</th><th>Name</th><th>Duration</th><th>Transcript</th><th>Notified</th></tr></thead>
       <tbody id="recRows"></tbody>
     </table>
   </div>
@@ -121,25 +121,25 @@ export const DASHBOARD_HTML = /* html */ `<!doctype html>
 
 <script>
 const $ = (s) => document.querySelector(s);
-function fmtDate(ms){ const d=new Date(ms<1e12?ms*1000:ms); return d.toLocaleString('it-IT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+function fmtDate(ms){ const d=new Date(ms<1e12?ms*1000:ms); return d.toLocaleString('en-US',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); }
 function fmtDur(s){ const m=Math.floor(s/60), ss=s%60; return m+"m "+String(ss).padStart(2,'0')+"s"; }
-function pill(v){ return v ? '<span class="pill yes">sì</span>' : '<span class="pill no">no</span>'; }
+function pill(v){ return v ? '<span class="pill yes">yes</span>' : '<span class="pill no">no</span>'; }
 
 async function refreshStatus(){
   try {
     const s = await (await fetch('/api/status')).json();
     const b = [];
-    b.push('<span class="badge '+(s.running?'run':'live')+'">'+(s.running?'⏳ in esecuzione':'● attivo')+'</span>');
-    if(s.nextRunTs && !s.running){ const sec=Math.max(0,Math.round((s.nextRunTs-s.now)/1000)); b.push('<span class="badge">prossimo run: '+sec+'s</span>'); }
-    if(s.tokenExpiry){ const days=Math.round((s.tokenExpiry-s.now)/86400000); b.push('<span class="badge'+(days<15?' err':'')+'">token: '+days+'g</span>'); }
+    b.push('<span class="badge '+(s.running?'run':'live')+'">'+(s.running?'⏳ running':'● active')+'</span>');
+    if(s.nextRunTs && !s.running){ const sec=Math.max(0,Math.round((s.nextRunTs-s.now)/1000)); b.push('<span class="badge">next run: '+sec+'s</span>'); }
+    if(s.tokenExpiry){ const days=Math.round((s.tokenExpiry-s.now)/86400000); b.push('<span class="badge'+(days<15?' err':'')+'">token: '+days+'d</span>'); }
     b.push('<span class="badge">webhook: '+(s.webhookEnabled?'ON':'OFF')+'</span>');
-    if(s.lastError){ b.push('<span class="badge err">errore: '+s.lastError+'</span>'); }
+    if(s.lastError){ b.push('<span class="badge err">error: '+s.lastError+'</span>'); }
     $('#badges').innerHTML = b.join('');
     $('#runBtn').disabled = s.running;
     const r = s.lastResult || {};
     $('#stats').innerHTML =
-      stat(r.tracked ?? '–','tracciate')+stat(r.added ?? '–','ultime nuove')+
-      stat(r.notified ?? '–','notificate')+stat(r.errors ?? '–','errori');
+      stat(r.tracked ?? '–','tracked')+stat(r.added ?? '–','new')+
+      stat(r.notified ?? '–','notified')+stat(r.errors ?? '–','errors');
   } catch(e){ $('#badges').innerHTML='<span class="badge err">GUI offline</span>'; }
 }
 function stat(n,l){ return '<div class="stat"><div class="n">'+n+'</div><div class="l">'+l+'</div></div>'; }
@@ -155,7 +155,7 @@ async function refreshRecordings(){
     $('#recRows').innerHTML = list.map(r =>
       '<tr><td class="mono">'+fmtDate(r.startTime)+'</td><td>'+escapeHtml(r.filename)+
       '</td><td>'+fmtDur(r.durationSec)+'</td><td>'+pill(r.hasTranscript)+'</td><td>'+pill(r.notified)+'</td></tr>'
-    ).join('') || '<tr><td colspan="5" class="muted">nessuna registrazione</td></tr>';
+    ).join('') || '<tr><td colspan="5" class="muted">No recordings yet</td></tr>';
   } catch(e){}
 }
 function escapeHtml(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
