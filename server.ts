@@ -204,7 +204,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
 async function main(): Promise<void> {
   settings = await loadSettings();
-  await log(`Starting GUI at http://0.0.0.0:${PORT} — output: ${settings.outputDir}, region: ${settings.region}`);
+  await log(`Starting GUI at http://localhost:${PORT} — output: ${settings.outputDir}, region: ${settings.region}`);
   await log(
     AUTH_ENABLED
       ? `HTTP Basic auth enabled (user: ${GUI_USER})`
