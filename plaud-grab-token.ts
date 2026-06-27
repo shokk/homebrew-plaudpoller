@@ -3,13 +3,13 @@
  *
  * Opens a dedicated Chrome window, navigates to app.plaud.ai, and waits for
  * you to complete Google login. Once detected, it extracts the bearer token
- * from the page's network requests and saves it to ~/.plaud/config.json in
- * the format expected by @plaud/core.
+ * from the page's network requests and saves it to the macOS Keychain
+ * (service: plaudpoller).
  *
  * Usage:
  *   npm run grab-token
  *
- * Chrome profile is persisted at ~/.plaud/chrome-profile so Google stays
+ * Chrome profile is persisted at ~/.plaudpoller/chrome-profile so Google stays
  * logged in across runs (subsequent grabs skip the Google login step).
  */
 
@@ -21,7 +21,7 @@ import * as path from 'node:path';
 
 const CDP_PORT = 19_222; // avoid colliding with any existing Chrome debug instance
 const PLAUD_ORIGIN = 'https://app.plaud.ai';
-const CONFIG_DIR = process.env.PLAUD_CONFIG_DIR ?? path.join(os.homedir(), '.plaud');
+const CONFIG_DIR = process.env.PLAUD_CONFIG_DIR ?? path.join(os.homedir(), '.plaudpoller');
 const CHROME_PROFILE_DIR = path.join(CONFIG_DIR, 'chrome-profile');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 

@@ -9,7 +9,7 @@ import type { Settings } from './settings.js';
 
 const execFileP = promisify(execFile);
 
-const CONFIG_DIR = process.env.PLAUD_CONFIG_DIR ?? path.join(os.homedir(), '.plaud');
+const CONFIG_DIR = process.env.PLAUD_CONFIG_DIR ?? path.join(os.homedir(), '.plaudpoller');
 
 export interface ProcessedEntry {
   id: string;

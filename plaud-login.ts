@@ -7,7 +7,7 @@ async function main(): Promise<void> {
   const email = process.env.PLAUD_EMAIL;
   const password = process.env.PLAUD_PASSWORD;
   const region = (process.env.PLAUD_REGION ?? 'eu') as 'us' | 'eu';
-  const configDir = process.env.PLAUD_CONFIG_DIR ?? path.join(os.homedir(), '.plaud');
+  const configDir = process.env.PLAUD_CONFIG_DIR ?? path.join(os.homedir(), '.plaudpoller');
 
   if (!email || !password) {
     throw new Error('Servono PLAUD_EMAIL e PLAUD_PASSWORD nelle env.');

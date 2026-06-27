@@ -4,7 +4,7 @@ import * as os from 'os';
 import { execFileSync } from 'child_process';
 import type { PlaudConfig as PlaudConfigData, PlaudCredentials, PlaudTokenData } from './types.js';
 
-const DEFAULT_DIR = path.join(os.homedir(), '.plaud');
+const DEFAULT_DIR = path.join(os.homedir(), '.plaudpoller');
 const CONFIG_FILE = 'config.json';
 const KEYCHAIN_SERVICE = 'plaudpoller';
 const IS_MACOS = process.platform === 'darwin';
