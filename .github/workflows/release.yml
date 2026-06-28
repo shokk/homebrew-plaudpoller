@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build binaries
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Stamp version from tag into package.json
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          jq --arg v "$TAG" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build arm64
+        run: bun build --compile --target=bun-darwin-arm64 src/cli.ts --outfile dist/plaudpoller-arm64
+
+      - name: Build x64
+        run: bun build --compile --target=bun-darwin-x64 src/cli.ts --outfile dist/plaudpoller-x64
+
+      - name: Compute SHA256
+        id: sha
+        run: |
+          echo "arm64=$(shasum -a 256 dist/plaudpoller-arm64 | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "x64=$(shasum -a 256 dist/plaudpoller-x64 | awk '{print $1}')" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/plaudpoller-arm64
+            dist/plaudpoller-x64
+          body: |
+            ## SHA256 checksums
+
+            | Binary | SHA256 |
+            |--------|--------|
+            | `plaudpoller-arm64` | `${{ steps.sha.outputs.arm64 }}` |
+            | `plaudpoller-x64`   | `${{ steps.sha.outputs.x64 }}` |
