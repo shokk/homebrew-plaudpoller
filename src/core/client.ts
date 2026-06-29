@@ -48,17 +48,9 @@ export class PlaudClient {
   }
 
   async listRecordings(): Promise<PlaudRecording[]> {
-    const all: PlaudRecording[] = [];
-    const PAGE_SIZE = 100;
-    let page = 1;
-    while (true) {
-      const data = await this.request(`/file/simple/web?page_num=${page}&page_size=${PAGE_SIZE}`);
-      const list: PlaudRecording[] = data.data_file_list ?? data.data ?? [];
-      all.push(...list);
-      if (list.length < PAGE_SIZE) break;
-      page++;
-    }
-    return all.filter(r => !r.is_trash);
+    const data = await this.request('/file/simple/web');
+    const list: PlaudRecording[] = data.data_file_list ?? data.data ?? [];
+    return list.filter(r => !r.is_trash);
   }
 
   async getRecording(id: string): Promise<PlaudRecordingDetail> {
