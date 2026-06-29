@@ -1,16 +1,19 @@
 import { PlaudAuth } from './auth.js';
+import { PlaudConfig } from './config.js';
 import { BASE_URLS, fetchRequester } from './types.js';
 import type { PlaudRecording, PlaudRecordingDetail, PlaudUserInfo, Requester } from './types.js';
 
 export class PlaudClient {
   private auth: PlaudAuth;
+  private config: PlaudConfig;
   private region: string;
   private requester: Requester;
 
-  constructor(auth: PlaudAuth, region: string = 'us', requester: Requester = fetchRequester) {
+  constructor(auth: PlaudAuth, region: string = 'us', requester: Requester = fetchRequester, config?: PlaudConfig) {
     this.auth = auth;
     this.region = region;
     this.requester = requester;
+    this.config = config!;
   }
 
   private get baseUrl(): string {
@@ -20,12 +23,23 @@ export class PlaudClient {
   private async request(path: string, options?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<any> {
     const token = await this.auth.getToken();
     const url = `${this.baseUrl}${path}`;
+
+    const extraHeaders: Record<string, string> = {};
+    if (this.config) {
+      const now = Date.now() / 1000;
+      const cookies = (this.config.getCookies() ?? []).filter(c => !c.expires || c.expires > now);
+      if (cookies.length > 0) {
+        extraHeaders['Cookie'] = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+      }
+    }
+
     const res = await this.requester({
       url,
       method: options?.method ?? 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
+        ...extraHeaders,
         ...options?.headers,
       },
       body: options?.body,
@@ -48,7 +62,7 @@ export class PlaudClient {
   }
 
   async listRecordings(): Promise<PlaudRecording[]> {
-    const data = await this.request('/file/simple/web?skip=0&limit=99999&sort_by=start_time&is_desc=true');
+    const data = await this.request('/file/simple/web?skip=0&limit=99999&is_trash=2&sort_by=start_time&is_desc=true');
     if (data?.status !== 0) {
       throw new Error(`listRecordings API error: status=${data?.status} msg=${data?.msg}`);
     }

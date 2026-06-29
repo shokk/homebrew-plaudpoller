@@ -11,9 +11,17 @@ export interface PlaudTokenData {
   expiresAt: number;  // epoch ms (decoded from JWT)
 }
 
+export interface PlaudCookie {
+  name: string;
+  value: string;
+  domain: string;
+  expires?: number; // epoch seconds
+}
+
 export interface PlaudConfig {
   credentials?: PlaudCredentials;
   token?: PlaudTokenData;
+  cookies?: PlaudCookie[];
 }
 
 export const BASE_URLS: Record<string, string> = {

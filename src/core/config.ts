@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { execFileSync } from 'child_process';
-import type { PlaudConfig as PlaudConfigData, PlaudCredentials, PlaudTokenData } from './types.js';
+import type { PlaudConfig as PlaudConfigData, PlaudCredentials, PlaudTokenData, PlaudCookie } from './types.js';
 
 const DEFAULT_DIR = path.join(os.homedir(), '.plaudpoller');
 const CONFIG_FILE = 'config.json';
@@ -144,6 +144,22 @@ export class PlaudConfig {
       return raw ? JSON.parse(raw) as PlaudCredentials : undefined;
     }
     return this.loadFile().credentials;
+  }
+
+  saveCookies(cookies: PlaudCookie[]): void {
+    if (IS_MACOS) {
+      keychainSet('cookies', JSON.stringify(cookies));
+    } else {
+      this.saveFile({ cookies });
+    }
+  }
+
+  getCookies(): PlaudCookie[] | undefined {
+    if (IS_MACOS) {
+      const raw = keychainGet('cookies');
+      return raw ? JSON.parse(raw) as PlaudCookie[] : undefined;
+    }
+    return this.loadFile().cookies;
   }
 
   // Non-secret settings (kept in file on all platforms)

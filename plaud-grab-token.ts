@@ -182,6 +182,22 @@ function saveToken(token: string): void {
   console.log(`  Expires: ${new Date(tokenData.expiresAt).toLocaleString()}`);
 }
 
+async function saveCookies(session: CDPSession): Promise<void> {
+  const result = await session.send<{ cookies: Array<{ name: string; value: string; domain: string; expires: number }> }>(
+    'Network.getCookies',
+    { urls: ['https://api.plaud.ai', 'https://web.plaud.ai', 'https://app.plaud.ai'] },
+  );
+  const cookies = result.cookies.map(c => ({
+    name: c.name,
+    value: c.value,
+    domain: c.domain,
+    expires: c.expires > 0 ? c.expires : undefined,
+  }));
+  const config = new PlaudConfig(CONFIG_DIR);
+  config.saveCookies(cookies);
+  console.log(`✓ ${cookies.length} session cookies saved to Keychain`);
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -242,6 +258,7 @@ async function main(): Promise<void> {
     });
 
     saveToken(token);
+    await saveCookies(session);
   } finally {
     chrome.kill();
   }

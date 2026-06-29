@@ -166,7 +166,7 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
     throw new Error(`No credentials found in ${path.join(CONFIG_DIR, 'config.json')}. Run \`npm run grab-token\` first.`);
   }
   const auth = new PlaudAuth(config);
-  const client = new PlaudClient(auth, s.region);
+  const client = new PlaudClient(auth, s.region, undefined, config);
   await auth.getToken(); // fail-fast su problemi di auth
 
   const state = await loadState(s);
