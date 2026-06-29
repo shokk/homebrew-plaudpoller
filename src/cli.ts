@@ -9,9 +9,22 @@
  */
 
 import pkg from '../package.json' with { type: 'json' };
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { PlaudConfig } from './core/index.js';
 const version = pkg.version;
 
 const [, , cmd, ...args] = process.argv;
+
+async function ensureAuth(): Promise<void> {
+  const configDir = process.env.PLAUD_CONFIG_DIR ?? path.join(os.homedir(), '.plaudpoller');
+  const config = new PlaudConfig(configDir);
+  if (!config.getToken() && !config.getCredentials()) {
+    console.log('No authentication found. Launching grab-token…');
+    const { main: grabToken } = await import('../plaud-grab-token.js');
+    await grabToken();
+  }
+}
 
 async function main(): Promise<void> {
   switch (cmd) {
@@ -27,6 +40,7 @@ async function main(): Promise<void> {
       break;
     }
     case 'poll': {
+      await ensureAuth();
       const { promises: fs } = await import('node:fs');
       const { runPoll } = await import('../poller-core.js');
       const { loadSettings, LOG_FILE, DATA_DIR } = await import('../settings.js');
@@ -51,6 +65,7 @@ async function main(): Promise<void> {
       break;
     }
     case 'serve': {
+      await ensureAuth();
       // server.ts has a self-executing main — just import it.
       await import('../server.js');
       break;
