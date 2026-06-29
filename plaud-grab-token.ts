@@ -18,6 +18,7 @@ import * as http from 'node:http';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PlaudConfig } from './src/core/index.js';
 
 const CDP_PORT = 19_222; // avoid colliding with any existing Chrome debug instance
@@ -249,7 +250,7 @@ async function main(): Promise<void> {
 export { main };
 
 // Run directly when invoked as a standalone script
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
   main().catch((err) => {
     console.error('Error:', (err as Error).message);
     process.exit(1);
