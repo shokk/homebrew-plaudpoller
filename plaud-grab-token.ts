@@ -18,12 +18,12 @@ import * as http from 'node:http';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { PlaudConfig } from './src/core/index.js';
 
 const CDP_PORT = 19_222; // avoid colliding with any existing Chrome debug instance
 const PLAUD_ORIGIN = 'https://app.plaud.ai';
 const CONFIG_DIR = process.env.PLAUD_CONFIG_DIR ?? path.join(os.homedir(), '.plaudpoller');
 const CHROME_PROFILE_DIR = path.join(CONFIG_DIR, 'chrome-profile');
-const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 // ── Chrome path candidates (macOS + Linux) ───────────────────────────────────
 
@@ -175,16 +175,9 @@ function saveToken(token: string): void {
     issuedAt: payload.iat * 1000,
     expiresAt: payload.exp * 1000,
   };
-  fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
-  let existing: Record<string, unknown> = {};
-  try { existing = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) as Record<string, unknown>; }
-  catch { /* first run */ }
-  fs.writeFileSync(
-    CONFIG_FILE,
-    JSON.stringify({ ...existing, token: tokenData }, null, 2),
-    { mode: 0o600 },
-  );
-  console.log(`\n✓ Token saved to ${CONFIG_FILE}`);
+  const config = new PlaudConfig(CONFIG_DIR);
+  config.saveToken(tokenData);
+  console.log('\n✓ Token saved to Keychain (service: plaudpoller)');
   console.log(`  Expires: ${new Date(tokenData.expiresAt).toLocaleString()}`);
 }
 
