@@ -19,7 +19,10 @@ const [, , cmd, ...args] = process.argv;
 async function ensureAuth(): Promise<void> {
   const configDir = process.env.PLAUD_CONFIG_DIR ?? path.join(os.homedir(), '.plaudpoller');
   const config = new PlaudConfig(configDir);
-  if (!config.getToken() && !config.getCredentials()) {
+  const hasToken = config.getToken();
+  const hasCreds = config.getCredentials();
+  const hasCookies = (config.getCookies() ?? []).length > 0;
+  if (!hasToken && !hasCreds || (hasToken && !hasCookies)) {
     console.log('No authentication found. Launching grab-token…');
     const { main: grabToken } = await import('../plaud-grab-token.js');
     await grabToken();
