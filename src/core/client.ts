@@ -48,7 +48,10 @@ export class PlaudClient {
   }
 
   async listRecordings(): Promise<PlaudRecording[]> {
-    const data = await this.request('/file/simple/web?skip=0&limit=99999&is_trash=2&sort_by=start_time&is_desc=true');
+    const data = await this.request('/file/simple/web?skip=0&limit=99999&sort_by=start_time&is_desc=true');
+    if (data?.status !== 0) {
+      throw new Error(`listRecordings API error: status=${data?.status} msg=${data?.msg}`);
+    }
     const list: PlaudRecording[] = data.data_file_list ?? data.data ?? [];
     return list.filter(r => !r.is_trash);
   }
