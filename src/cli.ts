@@ -19,11 +19,20 @@ const [, , cmd, ...args] = process.argv;
 async function ensureAuth(): Promise<void> {
   const configDir = process.env.PLAUD_CONFIG_DIR ?? path.join(os.homedir(), '.plaudpoller');
   const config = new PlaudConfig(configDir);
-  const hasToken = config.getToken();
   const hasCreds = config.getCredentials();
+
+  // Email/password: PlaudAuth refreshes the Bearer token automatically.
+  if (hasCreds) return;
+
+  // Google auth: pld_ut cookie token (~24h). Re-run grab-token if missing or expired.
+  const token = config.getToken();
+  const FIVE_MIN = 5 * 60 * 1000;
+  const tokenExpired = !token || token.expiresAt < Date.now() + FIVE_MIN;
   const hasCookies = (config.getCookies() ?? []).length > 0;
-  if (!hasToken && !hasCreds || (hasToken && !hasCookies)) {
-    console.log('No authentication found. Launching grab-token…');
+
+  if (tokenExpired || !hasCookies) {
+    const reason = tokenExpired ? 'Session token expired or missing' : 'Session cookies missing';
+    console.log(`${reason}. Launching grab-token…`);
     const { main: grabToken } = await import('../plaud-grab-token.js');
     await grabToken();
   }

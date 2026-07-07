@@ -23,28 +23,28 @@ export class PlaudClient {
   private async request(path: string, options?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<any> {
     const token = await this.auth.getToken();
     const url = `${this.baseUrl}${path}`;
+    const hasCreds = this.config?.getCredentials();
 
-    // Build cookie string: include pld_ut (session token) plus any saved cookies
-    const cookieParts: string[] = [`pld_ut=${token}`];
-    let deviceId = '';
-    if (this.config) {
-      const now = Date.now() / 1000;
-      const saved = (this.config.getCookies() ?? []).filter(c => !c.expires || c.expires > now);
-      for (const c of saved) {
-        if (c.name !== 'pld_ut') cookieParts.push(`${c.name}=${c.value}`);
-        if (c.name === 'pld_x-pld-tag') deviceId = c.value;
+    let authHeaders: Record<string, string>;
+
+    if (hasCreds) {
+      // Email/password auth: standard Bearer token
+      authHeaders = { 'Authorization': `Bearer ${token}` };
+    } else {
+      // Google auth: pld_ut cookie token + required web headers
+      const cookieParts: string[] = [`pld_ut=${token}`];
+      let deviceId = '';
+      if (this.config) {
+        const now = Date.now() / 1000;
+        const saved = (this.config.getCookies() ?? []).filter(c => !c.expires || c.expires > now);
+        for (const c of saved) {
+          if (c.name !== 'pld_ut') cookieParts.push(`${c.name}=${c.value}`);
+          if (c.name === 'pld_x-pld-tag') deviceId = c.value;
+        }
       }
-    }
-
-    // Plaud's web API requires these custom headers on every request
-    const reqId = Math.random().toString(36).slice(2, 13);
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-    const res = await this.requester({
-      url,
-      method: options?.method ?? 'GET',
-      headers: {
-        'Content-Type': 'application/json',
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const reqId = Math.random().toString(36).slice(2, 13);
+      authHeaders = {
         'Cookie': cookieParts.join('; '),
         'app-language': 'en',
         'app-platform': 'web',
@@ -52,6 +52,15 @@ export class PlaudClient {
         'timezone': tz,
         ...(deviceId ? { 'x-device-id': deviceId } : {}),
         'x-request-id': reqId,
+      };
+    }
+
+    const res = await this.requester({
+      url,
+      method: options?.method ?? 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders,
         ...options?.headers,
       },
       body: options?.body,
