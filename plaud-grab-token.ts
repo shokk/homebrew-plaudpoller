@@ -241,13 +241,25 @@ async function main(): Promise<void> {
         3 * 60_000,
       );
 
+      // Track request URLs by ID so we can filter by destination domain
+      const requestUrls = new Map<string, string>();
+
+      session.on('Network.requestWillBeSent', (params) => {
+        const p = params as { requestId: string; request: { url: string } };
+        requestUrls.set(p.requestId, p.request.url);
+      });
+
       session.on('Network.requestWillBeSentExtraInfo', (params) => {
-        const p = params as { headers: Record<string, string> };
+        const p = params as { requestId: string; headers: Record<string, string> };
+        const url = requestUrls.get(p.requestId) ?? '';
+        // Only accept tokens destined for Plaud's own API
+        if (!url.includes('api.plaud.ai') && !url.includes('api-euc1.plaud.ai')) return;
+
         const auth = p.headers['authorization'] ?? p.headers['Authorization'] ?? '';
         if (auth.startsWith('Bearer ')) {
           const candidate = auth.slice(7);
           try {
-            decodeJwtPayload(candidate); // validate it's a real JWT
+            decodeJwtPayload(candidate);
             clearTimeout(timer);
             resolve(candidate);
           } catch {
