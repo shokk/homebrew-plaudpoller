@@ -31,6 +31,10 @@ export class PlaudClient {
       if (cookies.length > 0) {
         extraHeaders['Cookie'] = cookies.map(c => `${c.name}=${c.value}`).join('; ');
       }
+      // Web-session tokens (client_id=web) require X-Pld-Tag header from the
+      // pld_x-pld-tag cookie (double-submit CSRF pattern).
+      const tag = cookies.find(c => c.name === 'pld_x-pld-tag');
+      if (tag) extraHeaders['X-Pld-Tag'] = tag.value;
     }
 
     const res = await this.requester({
