@@ -24,26 +24,34 @@ export class PlaudClient {
     const token = await this.auth.getToken();
     const url = `${this.baseUrl}${path}`;
 
-    const extraHeaders: Record<string, string> = {};
+    // Build cookie string: include pld_ut (session token) plus any saved cookies
+    const cookieParts: string[] = [`pld_ut=${token}`];
+    let deviceId = '';
     if (this.config) {
       const now = Date.now() / 1000;
-      const cookies = (this.config.getCookies() ?? []).filter(c => !c.expires || c.expires > now);
-      if (cookies.length > 0) {
-        extraHeaders['Cookie'] = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+      const saved = (this.config.getCookies() ?? []).filter(c => !c.expires || c.expires > now);
+      for (const c of saved) {
+        if (c.name !== 'pld_ut') cookieParts.push(`${c.name}=${c.value}`);
+        if (c.name === 'pld_x-pld-tag') deviceId = c.value;
       }
-      // Web-session tokens (client_id=web) require X-Pld-Tag header from the
-      // pld_x-pld-tag cookie (double-submit CSRF pattern).
-      const tag = cookies.find(c => c.name === 'pld_x-pld-tag');
-      if (tag) extraHeaders['X-Pld-Tag'] = tag.value;
     }
+
+    // Plaud's web API requires these custom headers on every request
+    const reqId = Math.random().toString(36).slice(2, 13);
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     const res = await this.requester({
       url,
       method: options?.method ?? 'GET',
       headers: {
-        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
-        ...extraHeaders,
+        'Cookie': cookieParts.join('; '),
+        'app-language': 'en',
+        'app-platform': 'web',
+        'edit-from': 'web',
+        'timezone': tz,
+        ...(deviceId ? { 'x-device-id': deviceId } : {}),
+        'x-request-id': reqId,
         ...options?.headers,
       },
       body: options?.body,

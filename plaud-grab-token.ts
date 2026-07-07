@@ -228,45 +228,39 @@ async function main(): Promise<void> {
     const target = await getPlaudTarget();
     const session = await openSession(target);
 
-    // Enable Network domain so we can intercept request headers
+    // Enable Network domain so we can read cookies
     await session.send('Network.enable');
 
     console.log('\nChrome is open at app.plaud.ai.');
     console.log('→ Log in with Google if prompted.');
-    console.log('→ Waiting for Plaud API token (up to 3 minutes)…\n');
+    console.log('→ Waiting for Plaud session token (up to 3 minutes)…\n');
 
+    // Poll for pld_ut cookie — Plaud's session token (typ=UT, ~24h expiry).
+    // The web app sets it after completing the SSO/Google auth flow.
     const token = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(
-        () => reject(new Error('Timed out (3 min) waiting for Plaud token.')),
+        () => reject(new Error('Timed out (3 min) waiting for pld_ut cookie.')),
         3 * 60_000,
       );
 
-      // Track request URLs by ID so we can filter by destination domain
-      const requestUrls = new Map<string, string>();
-
-      session.on('Network.requestWillBeSent', (params) => {
-        const p = params as { requestId: string; request: { url: string } };
-        requestUrls.set(p.requestId, p.request.url);
-      });
-
-      session.on('Network.requestWillBeSentExtraInfo', (params) => {
-        const p = params as { requestId: string; headers: Record<string, string> };
-        const url = requestUrls.get(p.requestId) ?? '';
-        // Only accept tokens destined for Plaud's own API
-        if (!url.includes('api.plaud.ai') && !url.includes('api-euc1.plaud.ai')) return;
-
-        const auth = p.headers['authorization'] ?? p.headers['Authorization'] ?? '';
-        if (auth.startsWith('Bearer ')) {
-          const candidate = auth.slice(7);
-          try {
-            decodeJwtPayload(candidate);
+      const check = async () => {
+        try {
+          const result = await session.send<{ cookies: Array<{ name: string; value: string }> }>(
+            'Network.getCookies',
+            { urls: ['https://web.plaud.ai', 'https://app.plaud.ai', 'https://api.plaud.ai'] },
+          );
+          const ut = result.cookies.find(c => c.name === 'pld_ut');
+          if (ut) {
             clearTimeout(timer);
-            resolve(candidate);
-          } catch {
-            // not a JWT, skip
+            resolve(ut.value);
+          } else {
+            setTimeout(() => void check(), 2000);
           }
+        } catch {
+          setTimeout(() => void check(), 2000);
         }
-      });
+      };
+      void check();
     });
 
     saveToken(token);
