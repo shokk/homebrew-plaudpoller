@@ -14,6 +14,7 @@ const CONFIG_DIR = process.env.PLAUD_CONFIG_DIR ?? path.join(os.homedir(), '.pla
 export interface ProcessedEntry {
   id: string;
   filename: string;
+  tag: string;
   dir: string;
   audioFile: string;
   savedAt: string;
@@ -21,7 +22,6 @@ export interface ProcessedEntry {
   durationSec: number;
   hasTranscript: boolean;
   hasSummary: boolean;
-  /** path dei chunk audio per la trascrizione (vuoto se chunkMinutes=0 o ffmpeg assente) */
   chunks: string[];
   notified: boolean;
 }
@@ -69,9 +69,15 @@ function safeName(s: string): string {
   return s.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80);
 }
 
+function extractTag(filename: string): string {
+  const match = filename.match(/\[([^\]]+)\]/);
+  return match ? match[1].trim().toLowerCase() : 'default';
+}
+
 function recordingDir(s: Settings, rec: { id: string; filename: string; start_time: number }): string {
   const day = toDate(rec.start_time).toISOString().slice(0, 10);
-  return path.join(s.outputDir, `${day}_${rec.id}_${safeName(rec.filename || 'rec')}`);
+  const tag = extractTag(rec.filename);
+  return path.join(s.outputDir, tag, `${day}_${rec.id}_${safeName(rec.filename || 'rec')}`);
 }
 
 async function convertToM4a(mp3Path: string, log: Logger): Promise<string> {
@@ -175,6 +181,41 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
 
   const result: PollResult = { found: recordings.length, added: 0, notified: 0, errors: 0, tracked: 0 };
 
+  // Re-scan already-processed recordings for title/tag changes and refile if needed
+  for (const rec of recordings) {
+    const entry = state.processed[rec.id];
+    if (!entry) continue;
+    if (rec.filename === entry.filename) continue;
+
+    const newTag = extractTag(rec.filename);
+    const newDir = recordingDir(s, rec);
+    if (newDir === entry.dir) {
+      // only filename changed within same tag — update metadata, no move needed
+      entry.filename = rec.filename;
+      entry.tag = newTag;
+      await saveState(s, state);
+      log(`Updated filename for ${rec.id}: "${rec.filename}"`);
+      continue;
+    }
+
+    try {
+      await fs.mkdir(path.dirname(newDir), { recursive: true });
+      await fs.rename(entry.dir, newDir);
+      // Update all stored paths to reflect the new location
+      const oldDir = entry.dir;
+      entry.dir = newDir;
+      entry.filename = rec.filename;
+      entry.tag = newTag;
+      entry.audioFile = entry.audioFile.replace(oldDir, newDir);
+      entry.chunks = entry.chunks.map(c => c.replace(oldDir, newDir));
+      await saveState(s, state);
+      log(`Refiled ${rec.id} [${entry.tag}→${newTag}]: ${path.basename(oldDir)} → ${path.basename(newDir)}`);
+    } catch (err) {
+      result.errors++;
+      log(`  refile error ${rec.id}: ${(err as Error).message}`);
+    }
+  }
+
   for (const rec of recordings) {
     if (rec.is_trash && !s.includeTrash) continue;
     if (state.processed[rec.id]) continue;
@@ -195,6 +236,7 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
       state.processed[rec.id] = {
         id: rec.id,
         filename: rec.filename,
+        tag: extractTag(rec.filename),
         dir,
         audioFile,
         savedAt: new Date().toISOString(),
@@ -210,7 +252,7 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
       log(`  saved to ${dir}`);
     } catch (err) {
       result.errors++;
-      log(`  ERRORE su ${rec.id}: ${(err as Error).message}`);
+      log(`  error on ${rec.id}: ${(err as Error).message}`);
     }
   }
 
