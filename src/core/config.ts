@@ -162,6 +162,16 @@ export class PlaudConfig {
     return this.loadFile().cookies;
   }
 
+  saveClaudeApiKey(key: string): void {
+    if (IS_MACOS) keychainSet('claude-api-key', key);
+    else this.saveFile({ claudeApiKey: key } as any);
+  }
+
+  getClaudeApiKey(): string | undefined {
+    if (IS_MACOS) return keychainGet('claude-api-key');
+    return (this.loadFile() as any).claudeApiKey as string | undefined;
+  }
+
   // Non-secret settings (kept in file on all platforms)
   load(): PlaudConfigData {
     const file = this.loadFile();

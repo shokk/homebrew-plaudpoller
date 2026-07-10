@@ -71,6 +71,18 @@ async function main(): Promise<void> {
       if (res.errors > 0) process.exitCode = 1;
       break;
     }
+    case 'set-claude-key': {
+      const key = args[0];
+      if (!key) {
+        console.error('Usage: plaudpoller set-claude-key <API_KEY>');
+        process.exit(1);
+      }
+      const configDir = process.env.PLAUD_CONFIG_DIR ?? path.join(os.homedir(), '.plaudpoller');
+      const config = new PlaudConfig(configDir);
+      config.saveClaudeApiKey(key);
+      console.log('Claude API key saved to Keychain (service: plaudpoller, account: claude-api-key).');
+      break;
+    }
     case 'login': {
       const { main: login } = await import('../plaud-login.js');
       await login();
@@ -87,11 +99,12 @@ async function main(): Promise<void> {
       console.error(`${name}Usage: plaudpoller <command>
 
 Commands:
-  grab-token   Capture Google auth token via Chrome (run once to authenticate)
-  login        Authenticate with email/password (set PLAUD_EMAIL and PLAUD_PASSWORD)
-  poll         Run one poll cycle and exit
-  serve        Start the web GUI + background scheduler (default port 8787)
-  version      Print version number
+  grab-token         Capture Google auth token via Chrome (run once to authenticate)
+  login              Authenticate with email/password (set PLAUD_EMAIL and PLAUD_PASSWORD)
+  set-claude-key     Store Anthropic API key in Keychain for AI note enrichment
+  poll               Run one poll cycle and exit
+  serve              Start the web GUI + background scheduler (default port 8787)
+  version            Print version number
 `);
       process.exit(cmd ? 1 : 0);
     }

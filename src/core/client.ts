@@ -96,17 +96,31 @@ export class PlaudClient {
     const raw = data.data ?? data;
 
     let transcript = '';
+    let plaudSummary = '';
+    let highlights = '';
     const preDownload: any[] = raw.pre_download_content_list ?? [];
     for (const item of preDownload) {
-      const content = item.data_content ?? '';
+      const dataId: string = item.data_id ?? '';
+      const content: string = item.data_content ?? '';
+      if (dataId.startsWith('auto_sum:')) plaudSummary = content;
+      else if (dataId.startsWith('note:')) highlights = content;
+      // keep longest as legacy transcript field
       if (content.length > transcript.length) transcript = content;
     }
+
+    const aiHeader = (raw.extra_data?.aiContentHeader ?? {}) as Record<string, any>;
 
     return {
       ...raw,
       id: raw.file_id ?? id,
       filename: raw.file_name ?? raw.filename ?? id,
       transcript,
+      plaudSummary: plaudSummary || undefined,
+      highlights: highlights || undefined,
+      aiCategory: aiHeader.category || undefined,
+      aiHeadline: aiHeader.headline || undefined,
+      usedTemplate: raw.extra_data?.used_template ?? aiHeader.used_template ?? undefined,
+      recommendQuestions: aiHeader.recommend_questions ?? undefined,
     } as PlaudRecordingDetail;
   }
 

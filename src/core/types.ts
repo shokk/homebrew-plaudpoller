@@ -84,8 +84,13 @@ export interface PlaudRecording {
 }
 
 export interface PlaudRecordingDetail extends PlaudRecording {
-  transcript: string;
-  summary?: string;
+  transcript: string;    // longest content from pre_download_content_list (legacy fallback)
+  plaudSummary?: string; // auto_sum content (GPT-5 structured summary)
+  highlights?: string;   // note content (timestamped highlights)
+  aiCategory?: string;   // aiContentHeader.category e.g. "Job Interview"
+  aiHeadline?: string;   // aiContentHeader.headline
+  usedTemplate?: string; // e.g. "interview-job"
+  recommendQuestions?: unknown[];
 }
 
 export interface PlaudUserInfo {
