@@ -3,3 +3,5 @@ dist/
 data/
 exports/
 xyz-open-plaude-do-not-use/
+.DS_Store
+*.bun-build
