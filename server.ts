@@ -72,11 +72,34 @@ async function log(msg: string): Promise<void> {
   }
 }
 
+async function ensureAuth(): Promise<void> {
+  const { PlaudConfig } = await import('./src/core/index.js');
+  const path = await import('node:path');
+  const os = await import('node:os');
+  const configDir = process.env.PLAUD_CONFIG_DIR ?? path.join(os.homedir(), '.plaudpoller');
+  const config = new PlaudConfig(configDir);
+  if (config.getCredentials()) return; // email/password: auto-refreshes
+
+  const token = config.getToken();
+  const FIVE_MIN = 5 * 60 * 1000;
+  const tokenExpired = !token || token.expiresAt < Date.now() + FIVE_MIN;
+  const hasCookies = (config.getCookies() ?? []).length > 0;
+
+  if (tokenExpired || !hasCookies) {
+    const reason = tokenExpired ? 'Session token expired or missing' : 'Session cookies missing';
+    void log(`${reason} — launching grab-token…`);
+    const { main: grabToken } = await import('./plaud-grab-token.js');
+    await grabToken();
+    void log('grab-token completed, resuming poll.');
+  }
+}
+
 async function runNow(trigger: string): Promise<{ started: boolean; reason?: string }> {
   if (running) return { started: false, reason: 'already running' };
   running = true;
   void log(`--- Run (${trigger}) ---`);
   try {
+    await ensureAuth();
     lastResult = await runPoll(settings, (m) => void log(m));
     lastError = null;
   } catch (err) {
