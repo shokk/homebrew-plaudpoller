@@ -40,7 +40,7 @@ function keychainSet(account: string, value: string): void {
     '-s', KEYCHAIN_SERVICE,
     '-a', account,
     '-w', value,
-    '-T', '', // only this app can access without prompting
+    '-T', process.execPath, // trust this binary so "Always Allow" persists across sessions
   ], { stdio: 'ignore' });
 }
 
