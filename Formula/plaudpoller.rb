@@ -7,16 +7,16 @@
 class Plaudpoller < Formula
   desc "Poll and download recordings from Plaud.ai"
   homepage "https://github.com/shokk/homebrew-plaudpoller"
-  version "1.2.6"
+  version "1.2.7"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/shokk/homebrew-plaudpoller/releases/download/v#{version}/plaudpoller-arm64"
-      sha256 "70172953958fbb050c2554720c9bc1731d70b6780cce96ef7abd23ebdf16d819"
+      sha256 "23af78b602a48a4aa3df03cba30e91a0399d7a56b25d21ff6fdd8ea81eb01288"
     else
       url "https://github.com/shokk/homebrew-plaudpoller/releases/download/v#{version}/plaudpoller-x64"
-      sha256 "d21c87c041711ee31ae2d8c221d7f8887b40f1a24d08d7314557bc8f5e356027"
+      sha256 "c2d07e371f3510e240c45e08cf54829543728fe2c1b202ee31afb201541c0df0"
     end
   end
 
