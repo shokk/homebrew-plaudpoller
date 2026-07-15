@@ -168,7 +168,20 @@ function decodeJwtPayload(jwt: string): { iat: number; exp: number } {
   };
 }
 
-function saveToken(token: string): void {
+async function fetchCookies(session: CDPSession): Promise<Array<{ name: string; value: string; domain: string; expires?: number }>> {
+  const result = await session.send<{ cookies: Array<{ name: string; value: string; domain: string; expires: number }> }>(
+    'Network.getCookies',
+    { urls: ['https://api.plaud.ai', 'https://web.plaud.ai', 'https://app.plaud.ai'] },
+  );
+  return result.cookies.map(c => ({
+    name: c.name,
+    value: c.value,
+    domain: c.domain,
+    expires: c.expires > 0 ? c.expires : undefined,
+  }));
+}
+
+function saveAuth(token: string, cookies: Array<{ name: string; value: string; domain: string; expires?: number }>): void {
   const payload = decodeJwtPayload(token);
   const tokenData = {
     accessToken: token,
@@ -177,25 +190,47 @@ function saveToken(token: string): void {
     expiresAt: payload.exp * 1000,
   };
   const config = new PlaudConfig(CONFIG_DIR);
-  config.saveToken(tokenData);
-  console.log('\n✓ Token saved to Keychain (service: plaudpoller)');
-  console.log(`  Expires: ${new Date(tokenData.expiresAt).toLocaleString()}`);
+  config.saveAuth(tokenData, cookies);
+  console.log('\n✓ Auth saved to Keychain (service: plaudpoller, account: auth)');
+  console.log(`  Token expires: ${new Date(tokenData.expiresAt).toLocaleString()}`);
+  console.log(`  Cookies saved: ${cookies.length}`);
 }
 
-async function saveCookies(session: CDPSession): Promise<void> {
-  const result = await session.send<{ cookies: Array<{ name: string; value: string; domain: string; expires: number }> }>(
-    'Network.getCookies',
-    { urls: ['https://api.plaud.ai', 'https://web.plaud.ai', 'https://app.plaud.ai'] },
+// ── Chrome session helpers ────────────────────────────────────────────────────
+
+function spawnChrome(chromePath: string, extraArgs: string[] = []) {
+  return spawn(
+    chromePath,
+    [
+      `--remote-debugging-port=${CDP_PORT}`,
+      `--user-data-dir=${CHROME_PROFILE_DIR}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+      ...extraArgs,
+      PLAUD_ORIGIN,
+    ],
+    { stdio: 'ignore', detached: false },
   );
-  const cookies = result.cookies.map(c => ({
-    name: c.name,
-    value: c.value,
-    domain: c.domain,
-    expires: c.expires > 0 ? c.expires : undefined,
-  }));
-  const config = new PlaudConfig(CONFIG_DIR);
-  config.saveCookies(cookies);
-  console.log(`✓ ${cookies.length} session cookies saved to Keychain`);
+}
+
+async function pollForToken(session: CDPSession, timeoutMs: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), timeoutMs);
+    const check = async () => {
+      try {
+        const result = await session.send<{ cookies: Array<{ name: string; value: string }> }>(
+          'Network.getCookies',
+          { urls: ['https://web.plaud.ai', 'https://app.plaud.ai', 'https://api.plaud.ai'] },
+        );
+        const ut = result.cookies.find(c => c.name === 'pld_ut');
+        if (ut) { clearTimeout(timer); resolve(ut.value); }
+        else setTimeout(() => void check(), 2000);
+      } catch {
+        setTimeout(() => void check(), 2000);
+      }
+    };
+    void check();
+  });
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -203,68 +238,57 @@ async function saveCookies(session: CDPSession): Promise<void> {
 async function main(): Promise<void> {
   const chromePath = process.env.CHROME_PATH ?? findChrome();
 
-  console.log('Launching Chrome with remote debugging…');
-  const chrome = spawn(
-    chromePath,
-    [
-      `--remote-debugging-port=${CDP_PORT}`,
-      `--user-data-dir=${CHROME_PROFILE_DIR}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      PLAUD_ORIGIN,
-    ],
-    { stdio: 'ignore', detached: false },
-  );
+  // ── Step 1: try headless — silent refresh when Google session is still alive ──
+  console.log('Attempting silent session refresh (headless)…');
+  const headless = spawnChrome(chromePath, ['--headless=new', '--disable-gpu']);
+  headless.on('error', () => { /* will fall through to headed */ });
 
+  let didSilentRefresh = false;
+  try {
+    await waitForCDP(8_000);
+    const target = await getPlaudTarget();
+    const session = await openSession(target);
+    await session.send('Network.enable');
+
+    const token = await pollForToken(session, 12_000);
+    if (token) {
+      const cookies = await fetchCookies(session);
+      saveAuth(token, cookies);
+      didSilentRefresh = true;
+      console.log('✓ Silent refresh complete — no interaction required.');
+    }
+  } catch {
+    // headless failed to start or connect; fall through
+  } finally {
+    headless.kill();
+  }
+
+  if (didSilentRefresh) return;
+
+  // ── Step 2: fall back to headed Chrome for interactive Google login ──────────
+  console.log('\nSilent refresh failed (Google session may have expired).');
+  console.log('Launching Chrome for interactive login…');
+  const chrome = spawnChrome(chromePath);
   chrome.on('error', (err) => {
     console.error('Failed to launch Chrome:', err.message);
     process.exit(1);
   });
 
   try {
-    console.log('Waiting for Chrome DevTools Protocol…');
-    await waitForCDP();
-
+    await waitForCDP(10_000);
     const target = await getPlaudTarget();
     const session = await openSession(target);
-
-    // Enable Network domain so we can read cookies
     await session.send('Network.enable');
 
     console.log('\nChrome is open at app.plaud.ai.');
     console.log('→ Log in with Google if prompted.');
     console.log('→ Waiting for Plaud session token (up to 3 minutes)…\n');
 
-    // Poll for pld_ut cookie — Plaud's session token (typ=UT, ~24h expiry).
-    // The web app sets it after completing the SSO/Google auth flow.
-    const token = await new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error('Timed out (3 min) waiting for pld_ut cookie.')),
-        3 * 60_000,
-      );
+    const token = await pollForToken(session, 3 * 60_000);
+    if (!token) throw new Error('Timed out (3 min) waiting for pld_ut cookie.');
 
-      const check = async () => {
-        try {
-          const result = await session.send<{ cookies: Array<{ name: string; value: string }> }>(
-            'Network.getCookies',
-            { urls: ['https://web.plaud.ai', 'https://app.plaud.ai', 'https://api.plaud.ai'] },
-          );
-          const ut = result.cookies.find(c => c.name === 'pld_ut');
-          if (ut) {
-            clearTimeout(timer);
-            resolve(ut.value);
-          } else {
-            setTimeout(() => void check(), 2000);
-          }
-        } catch {
-          setTimeout(() => void check(), 2000);
-        }
-      };
-      void check();
-    });
-
-    saveToken(token);
-    await saveCookies(session);
+    const cookies = await fetchCookies(session);
+    saveAuth(token, cookies);
   } finally {
     chrome.kill();
   }

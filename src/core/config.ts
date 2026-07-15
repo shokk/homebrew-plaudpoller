@@ -54,6 +54,18 @@ function keychainDelete(account: string): void {
   } catch { /* not present, fine */ }
 }
 
+// ── Auth bundle (token + cookies in one Keychain entry) ──────────────────────
+
+interface AuthBundle {
+  token?: PlaudTokenData;
+  cookies?: PlaudCookie[];
+}
+
+function keychainGetAuth(): AuthBundle {
+  const raw = keychainGet('auth');
+  return raw ? JSON.parse(raw) as AuthBundle : {};
+}
+
 // ── PlaudConfig ───────────────────────────────────────────────────────────────
 
 export class PlaudConfig {
@@ -61,26 +73,21 @@ export class PlaudConfig {
 
   constructor(dir?: string) {
     this.dir = dir ?? DEFAULT_DIR;
-    if (IS_MACOS) this.migrateFromFile();
+    if (IS_MACOS) this.migrate();
   }
 
-  // On first run after upgrade, move any plaintext secrets out of the file
-  // into the keychain, then scrub them from the file.
-  private migrateFromFile(): void {
+  // Migrate plaintext file secrets → Keychain, and old separate token/cookies
+  // entries → single consolidated 'auth' entry.
+  private migrate(): void {
+    // Phase 1: file → keychain (legacy, pre-keychain builds)
     const fp = this.filePath();
     let data: PlaudConfigData;
     try {
       data = JSON.parse(fs.readFileSync(fp, 'utf-8')) as PlaudConfigData;
     } catch {
-      return;
+      data = {};
     }
-
     let dirty = false;
-    if (data.token && !keychainGet('token')) {
-      keychainSet('token', JSON.stringify(data.token));
-      delete data.token;
-      dirty = true;
-    }
     if (data.credentials && !keychainGet('credentials')) {
       keychainSet('credentials', JSON.stringify(data.credentials));
       delete data.credentials;
@@ -88,6 +95,20 @@ export class PlaudConfig {
     }
     if (dirty) {
       fs.writeFileSync(fp, JSON.stringify(data, null, 2), { mode: 0o600 });
+    }
+
+    // Phase 2: separate 'token' + 'cookies' entries → single 'auth' entry
+    if (!keychainGet('auth')) {
+      const oldToken = keychainGet('token');
+      const oldCookies = keychainGet('cookies');
+      if (oldToken || oldCookies) {
+        const bundle: AuthBundle = {};
+        if (oldToken) bundle.token = JSON.parse(oldToken) as PlaudTokenData;
+        if (oldCookies) bundle.cookies = JSON.parse(oldCookies) as PlaudCookie[];
+        keychainSet('auth', JSON.stringify(bundle));
+        keychainDelete('token');
+        keychainDelete('cookies');
+      }
     }
   }
 
@@ -114,9 +135,20 @@ export class PlaudConfig {
     fs.writeFileSync(this.filePath(), JSON.stringify(merged, null, 2), { mode: 0o600 });
   }
 
+  // Save token + cookies together in one Keychain write → one prompt.
+  saveAuth(token: PlaudTokenData, cookies: PlaudCookie[]): void {
+    if (IS_MACOS) {
+      keychainSet('auth', JSON.stringify({ token, cookies } satisfies AuthBundle));
+    } else {
+      this.saveFile({ token, cookies });
+    }
+  }
+
   saveToken(token: PlaudTokenData): void {
     if (IS_MACOS) {
-      keychainSet('token', JSON.stringify(token));
+      const bundle = keychainGetAuth();
+      bundle.token = token;
+      keychainSet('auth', JSON.stringify(bundle));
     } else {
       this.saveFile({ token });
     }
@@ -131,10 +163,7 @@ export class PlaudConfig {
   }
 
   getToken(): PlaudTokenData | undefined {
-    if (IS_MACOS) {
-      const raw = keychainGet('token');
-      return raw ? JSON.parse(raw) as PlaudTokenData : undefined;
-    }
+    if (IS_MACOS) return keychainGetAuth().token;
     return this.loadFile().token;
   }
 
@@ -148,17 +177,16 @@ export class PlaudConfig {
 
   saveCookies(cookies: PlaudCookie[]): void {
     if (IS_MACOS) {
-      keychainSet('cookies', JSON.stringify(cookies));
+      const bundle = keychainGetAuth();
+      bundle.cookies = cookies;
+      keychainSet('auth', JSON.stringify(bundle));
     } else {
       this.saveFile({ cookies });
     }
   }
 
   getCookies(): PlaudCookie[] | undefined {
-    if (IS_MACOS) {
-      const raw = keychainGet('cookies');
-      return raw ? JSON.parse(raw) as PlaudCookie[] : undefined;
-    }
+    if (IS_MACOS) return keychainGetAuth().cookies;
     return this.loadFile().cookies;
   }
 
