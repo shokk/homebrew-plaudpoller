@@ -53,11 +53,21 @@ jobs:
             | `plaudpoller-x64`   | `${{ steps.sha.outputs.x64 }}` |
 
       - name: Update Formula with computed version + checksums
+        env:
+          TAG_ENV: ${{ github.ref_name }}
+          SHA_ARM64: ${{ steps.sha.outputs.arm64 }}
+          SHA_X64: ${{ steps.sha.outputs.x64 }}
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          ruby -pi -e "\$_.sub!(/version \".*\"/, %(version \"#{TAG}\"))" Formula/plaudpoller.rb
+          # Strip the leading "v" from the tag (v1.3.0 -> 1.3.0) and export so
+          # the Ruby subprocess below can read it via ENV — Ruby has no idea
+          # what a bash variable is, and #{TAG} in a Ruby string is constant
+          # interpolation, not env-var interpolation.
+          export TAG="${TAG_ENV#v}"
+
+          ruby -pi -e '$_.sub!(/version ".*"/, %(version "#{ENV["TAG"]}"))' Formula/plaudpoller.rb
+
           # Replace the two sha256 lines in order: arm64 first, x64 second.
-          awk -v arm64="${{ steps.sha.outputs.arm64 }}" -v x64="${{ steps.sha.outputs.x64 }}" '
+          awk -v arm64="$SHA_ARM64" -v x64="$SHA_X64" '
             BEGIN { n = 0 }
             /sha256 "/ {
               n++
@@ -68,6 +78,37 @@ jobs:
           ' Formula/plaudpoller.rb > Formula/plaudpoller.rb.tmp
           mv Formula/plaudpoller.rb.tmp Formula/plaudpoller.rb
           cat Formula/plaudpoller.rb
+
+      - name: Verify formula was actually patched
+        env:
+          TAG_ENV: ${{ github.ref_name }}
+          SHA_ARM64: ${{ steps.sha.outputs.arm64 }}
+          SHA_X64: ${{ steps.sha.outputs.x64 }}
+        run: |
+          TAG="${TAG_ENV#v}"
+          FAIL=0
+
+          if ! grep -qF "version \"${TAG}\"" Formula/plaudpoller.rb; then
+            echo "::error::Formula/plaudpoller.rb does not contain version \"${TAG}\" after patching. The version-patch step silently failed to update the formula."
+            FAIL=1
+          fi
+
+          if ! grep -qF "sha256 \"${SHA_ARM64}\"" Formula/plaudpoller.rb; then
+            echo "::error::Formula/plaudpoller.rb is missing the expected arm64 sha256 (${SHA_ARM64}). The checksum-patch step silently failed."
+            FAIL=1
+          fi
+
+          if ! grep -qF "sha256 \"${SHA_X64}\"" Formula/plaudpoller.rb; then
+            echo "::error::Formula/plaudpoller.rb is missing the expected x64 sha256 (${SHA_X64}). The checksum-patch step silently failed."
+            FAIL=1
+          fi
+
+          if [ "$FAIL" -ne 0 ]; then
+            echo "::error::Formula verification failed — refusing to commit a stale/broken formula. See errors above."
+            exit 1
+          fi
+
+          echo "Formula verified: version and both sha256 checksums present."
 
       - name: Commit and push updated formula
         run: |
