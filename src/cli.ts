@@ -6,6 +6,7 @@
  *   plaudpoller grab-token   — capture Google auth token via Chrome
  *   plaudpoller poll         — run one poll cycle and exit
  *   plaudpoller serve        — start the web GUI + scheduler
+ *   plaudpoller config       — view or edit settings from the terminal
  */
 
 import pkg from '../package.json' with { type: 'json' };
@@ -88,6 +89,117 @@ async function main(): Promise<void> {
       await login();
       break;
     }
+    case 'config': {
+      const { loadSettings, saveSettings, sanitizeSettings } = await import('../settings.js');
+
+      const printConfigUsage = (): void => {
+        console.log(`Usage: plaudpoller config [get <key> | set <key> <value>]
+
+With no arguments, prints the full current settings as JSON.
+
+  get <key>          Print a single setting's value (dot-notation for nested keys, e.g. webhook.enabled)
+  set <key> <value>  Update a single setting and persist it. <value> is parsed as JSON when
+                      possible (so booleans/numbers/objects work), otherwise used as a raw string.
+
+Examples:
+  plaudpoller config
+  plaudpoller config get outputDir
+  plaudpoller config get webhook.enabled
+  plaudpoller config set pollIntervalMin 10
+  plaudpoller config set webhook.enabled true
+`);
+      };
+
+      const getByPath = (obj: unknown, keyPath: string): unknown => {
+        return keyPath.split('.').reduce<unknown>((acc, part) => {
+          if (acc && typeof acc === 'object' && part in (acc as Record<string, unknown>)) {
+            return (acc as Record<string, unknown>)[part];
+          }
+          return undefined;
+        }, obj);
+      };
+
+      const setByPath = (obj: Record<string, unknown>, keyPath: string, value: unknown): void => {
+        const parts = keyPath.split('.');
+        let cur = obj;
+        for (let i = 0; i < parts.length - 1; i++) {
+          const part = parts[i];
+          if (typeof cur[part] !== 'object' || cur[part] === null) {
+            cur[part] = {};
+          }
+          cur = cur[part] as Record<string, unknown>;
+        }
+        cur[parts[parts.length - 1]] = value;
+      };
+
+      const sub = args[0];
+
+      if (!sub) {
+        const settings = await loadSettings();
+        console.log(JSON.stringify(settings, null, 2));
+        break;
+      }
+
+      if (sub === '--help' || sub === '-h' || sub === 'help') {
+        printConfigUsage();
+        break;
+      }
+
+      if (sub === 'get') {
+        const key = args[1];
+        if (!key) {
+          console.error('Usage: plaudpoller config get <key>\n');
+          printConfigUsage();
+          process.exit(1);
+        }
+        const settings = await loadSettings();
+        const value = getByPath(settings, key);
+        if (value === undefined) {
+          console.error(`Unknown settings key: ${key}\n`);
+          printConfigUsage();
+          process.exit(1);
+        }
+        console.log(typeof value === 'string' ? value : JSON.stringify(value, null, 2));
+        break;
+      }
+
+      if (sub === 'set') {
+        const key = args[1];
+        const rawValue = args[2];
+        if (!key || rawValue === undefined) {
+          console.error('Usage: plaudpoller config set <key> <value>\n');
+          printConfigUsage();
+          process.exit(1);
+        }
+        const current = await loadSettings();
+        if (getByPath(current, key) === undefined) {
+          console.error(`Unknown settings key: ${key}\n`);
+          printConfigUsage();
+          process.exit(1);
+        }
+
+        let parsedValue: unknown;
+        try {
+          parsedValue = JSON.parse(rawValue);
+        } catch {
+          parsedValue = rawValue;
+        }
+
+        const draft = current as unknown as Record<string, unknown>;
+        setByPath(draft, key, parsedValue);
+        const sanitized = sanitizeSettings(draft);
+        await saveSettings(sanitized);
+
+        const updated = getByPath(sanitized, key);
+        console.log(typeof updated === 'string' ? updated : JSON.stringify(updated, null, 2));
+        break;
+      }
+
+      console.error(`Unknown config subcommand: ${sub}\n`);
+      printConfigUsage();
+      process.exit(1);
+      break;
+    }
     case 'serve': {
       await ensureAuth();
       // server.ts has a self-executing main — just import it.
@@ -104,6 +216,7 @@ Commands:
   set-claude-key     Store Anthropic API key in Keychain for AI note enrichment
   poll               Run one poll cycle and exit
   serve              Start the web GUI + background scheduler (default port 8787)
+  config             View or edit settings (plaudpoller config --help for details)
   version            Print version number
 `);
       process.exit(cmd ? 1 : 0);
