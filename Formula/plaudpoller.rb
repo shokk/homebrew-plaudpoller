@@ -13,10 +13,10 @@ class Plaudpoller < Formula
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/shokk/homebrew-plaudpoller/releases/download/v#{version}/plaudpoller-arm64"
-      sha256 "889546ae66e909ebabb593f7e3f9b0bf4fb6e7e52c856a9cd1c44ae89c399e61"
+      sha256 "7b6184d7eb8005d64e94fc0b9c39be1c8eae1cfa726ed4d6b45b1cc7b40ff261"
     else
       url "https://github.com/shokk/homebrew-plaudpoller/releases/download/v#{version}/plaudpoller-x64"
-      sha256 "450a1092b26a95665df43b9374591dcc31e337125ea72e2c459e827d187c7df0"
+      sha256 "839198547a17876508c6693258192daabc5fd759eaa90200e8f15777fbcb7acd"
     end
   end
 
