@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 
 export type Region = 'us' | 'eu';
 export type AudioFormat = 'mp3' | 'm4a' | 'original';
@@ -22,7 +23,7 @@ export interface Settings {
   webhook: WebhookSettings;
 }
 
-export const DATA_DIR = process.env.PLAUD_DATA_DIR ?? path.join(process.cwd(), 'data');
+export const DATA_DIR = process.env.PLAUD_DATA_DIR ?? path.join(os.homedir(), '.plaudpoller');
 export const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 export const LOG_FILE = path.join(DATA_DIR, 'poller.log');
 

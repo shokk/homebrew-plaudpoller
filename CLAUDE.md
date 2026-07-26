@@ -46,13 +46,13 @@ There are no tests or linter configured.
 - Tracks processed recordings in `outputDir/.state.json` (write-via-tmp-rename pattern)
 - Fires an outgoing webhook (POST JSON) for any unnotified entries
 
-**Settings** (`settings.ts`) layer: env vars → `data/settings.json` → hardcoded defaults. `sanitizeSettings()` validates GUI input before persisting.
+**Settings** (`settings.ts`) layer: env vars → `~/.plaudpoller/settings.json` → hardcoded defaults. `sanitizeSettings()` validates GUI input before persisting.
 
 **`@plaud/core`** is a local git submodule at `plaud-toolkit/`. Its public API (`PlaudConfig`, `PlaudAuth`, `PlaudClient`) handles authentication, token refresh, and API calls. Never import from submodule paths directly — use the `@plaud/core` package alias.
 
 **Data layout at runtime:**
 ```
-data/              # PLAUD_DATA_DIR (default: ./data)
+~/.plaudpoller/    # PLAUD_DATA_DIR (default: ~/.plaudpoller)
   settings.json
   poller.log
 

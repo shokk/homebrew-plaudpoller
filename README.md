@@ -38,7 +38,7 @@ plaudpoller serve
 
 ## Configuration
 
-Settings are read from `~/Library/Application Support/plaudpoller/settings.json` (or `$PLAUD_DATA_DIR/settings.json`). You can also set them via environment variables.
+Settings are read from `~/.plaudpoller/settings.json` (or `$PLAUD_DATA_DIR/settings.json`). You can also set them via environment variables.
 
 | Setting | Env var | Default | Description |
 |---------|---------|---------|-------------|
