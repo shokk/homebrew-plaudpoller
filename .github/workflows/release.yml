@@ -51,3 +51,32 @@ jobs:
             |--------|--------|
             | `plaudpoller-arm64` | `${{ steps.sha.outputs.arm64 }}` |
             | `plaudpoller-x64`   | `${{ steps.sha.outputs.x64 }}` |
+
+      - name: Update Formula with computed version + checksums
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          ruby -pi -e "\$_.sub!(/version \".*\"/, %(version \"#{TAG}\"))" Formula/plaudpoller.rb
+          # Replace the two sha256 lines in order: arm64 first, x64 second.
+          awk -v arm64="${{ steps.sha.outputs.arm64 }}" -v x64="${{ steps.sha.outputs.x64 }}" '
+            BEGIN { n = 0 }
+            /sha256 "/ {
+              n++
+              if (n == 1) { sub(/sha256 ".*"/, "sha256 \"" arm64 "\"") }
+              else if (n == 2) { sub(/sha256 ".*"/, "sha256 \"" x64 "\"") }
+            }
+            { print }
+          ' Formula/plaudpoller.rb > Formula/plaudpoller.rb.tmp
+          mv Formula/plaudpoller.rb.tmp Formula/plaudpoller.rb
+          cat Formula/plaudpoller.rb
+
+      - name: Commit and push updated formula
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/plaudpoller.rb
+          if git diff --cached --quiet; then
+            echo "No formula changes to commit"
+          else
+            git commit -m "chore: update formula to ${GITHUB_REF_NAME} with verified sha256 checksums"
+            git push origin HEAD:main
+          fi
