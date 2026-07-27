@@ -97,6 +97,7 @@ async function main(): Promise<void> {
 
 With no arguments, prints the full current settings as JSON.
 
+  get                Print the full current settings as JSON (same as no arguments)
   get <key>          Print a single setting's value (dot-notation for nested keys, e.g. webhook.enabled)
   set <key> <value>  Update a single setting and persist it. <value> is parsed as JSON when
                       possible (so booleans/numbers/objects work), otherwise used as a raw string.
@@ -148,9 +149,9 @@ Examples:
       if (sub === 'get') {
         const key = args[1];
         if (!key) {
-          console.error('Usage: plaudpoller config get <key>\n');
-          printConfigUsage();
-          process.exit(1);
+          const settings = await loadSettings();
+          console.log(JSON.stringify(settings, null, 2));
+          break;
         }
         const settings = await loadSettings();
         const value = getByPath(settings, key);
