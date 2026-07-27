@@ -46,17 +46,22 @@ function findChrome(): string {
 
 // ── Minimal CDP over HTTP + WebSocket ────────────────────────────────────────
 
-function cdpHttp(p: string): Promise<unknown> {
+function cdpHttp(p: string, method: 'GET' | 'PUT' = 'GET'): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    const req = http.get(`http://127.0.0.1:${CDP_PORT}${p}`, (res) => {
-      let buf = '';
-      res.on('data', (c: Buffer) => { buf += c; });
-      res.on('end', () => {
-        try { resolve(JSON.parse(buf)); }
-        catch { reject(new Error(`JSON parse error from CDP ${p}: ${buf}`)); }
-      });
-    });
+    const req = http.request(
+      `http://127.0.0.1:${CDP_PORT}${p}`,
+      { method },
+      (res) => {
+        let buf = '';
+        res.on('data', (c: Buffer) => { buf += c; });
+        res.on('end', () => {
+          try { resolve(JSON.parse(buf)); }
+          catch { reject(new Error(`JSON parse error from CDP ${p}: ${buf}`)); }
+        });
+      },
+    );
     req.on('error', reject);
+    req.end();
   });
 }
 
@@ -96,6 +101,7 @@ async function getPlaudTarget(): Promise<CDPTarget> {
   // Open a new tab via CDP
   const newTarget = (await cdpHttp(
     `/json/new?${encodeURIComponent(PLAUD_ORIGIN)}`,
+    'PUT',
   )) as CDPTarget;
   return newTarget;
 }
