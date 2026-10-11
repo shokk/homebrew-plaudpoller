@@ -28,7 +28,10 @@ Type-check without emitting:
 npx tsc --noEmit
 ```
 
-There are no tests or linter configured.
+There is no linter. The only tests are for the Python voice sidecar (no torch/pyannote needed):
+```bash
+npm run test:voice
+```
 
 ## Architecture
 
@@ -45,6 +48,8 @@ There are no tests or linter configured.
 - Saves `metadata.json`, `transcript.txt`, `summary.txt` per recording under `outputDir/<date>_<id>_<name>/`
 - Tracks processed recordings in `outputDir/.state.json` (write-via-tmp-rename pattern)
 - Fires an outgoing webhook (POST JSON) for any unnotified entries
+
+**Speaker identification** (opt-in, `settings.voice.enabled`) — `voice.ts` runs the Python sidecar in `voice/` (`identify.py`: pyannote diarization + embeddings; `store.py`: SQLite voiceprint DB; `matching.py`: threshold + margin + one-to-one assignment; `align.py`: merge turns into a Whisper transcript). `runPoll()` calls it after the audio download, on the full file (not the chunks), writes `speakers.json` into the recording dir, and records `speakers`/`voiceDone`/`voiceError` on the `ProcessedEntry`. Failures never block a recording; entries with `voiceError` are retried on later polls. pyannote can't be bundled into the `bun --compile` binary, so `plaudpoller voices setup` builds a venv in `~/.plaudpoller/voice-venv` and downloads the `plaudpoller-voice.tar.gz` release asset (the scripts only). The Python modules use sibling imports so the `voice/` folder stays self-contained.
 
 **Settings** (`settings.ts`) layer: env vars → `~/.plaudpoller/settings.json` → hardcoded defaults. `sanitizeSettings()` validates GUI input before persisting.
 

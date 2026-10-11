@@ -6,6 +6,7 @@ import * as os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { Settings } from './settings.js';
+import { runVoiceId, identifiedNames, loadVoiceResult } from './voice.js';
 
 const execFileP = promisify(execFile);
 
@@ -27,6 +28,10 @@ export interface ProcessedEntry {
   mdFile?: string;
   aiEnriched: boolean;
   aiError?: string;
+  /** Speaker identification (settings.voice.enabled). Details are in speakers.json next to the audio. */
+  voiceDone?: boolean;
+  voiceError?: string;
+  speakers?: string[];
 }
 
 export interface State {
@@ -219,6 +224,7 @@ function buildMarkdown(params: {
   aiCategory?: string;
   aiHeadline?: string;
   usedTemplate?: string;
+  speakers?: string[];
   plaudSummary?: string;
   highlights?: string;
   transcript?: string;
@@ -240,6 +246,7 @@ function buildMarkdown(params: {
     `- **Date:** ${params.date}`,
     `- **Tag:** ${params.tag}`,
     `- **Duration:** ${mins} min`,
+    params.speakers?.length && `- **Speakers:** ${params.speakers.join(', ')}`,
     params.usedTemplate && `- **Template:** ${params.usedTemplate}`,
   ].filter(Boolean).join('\n');
 
@@ -295,14 +302,27 @@ async function enrichWithAI(
   }
 }
 
+/** Add or refresh the "Speakers" line in an existing note (used when voice id succeeds on a retry). */
+async function addSpeakersToMarkdown(mdPath: string, names: string[]): Promise<void> {
+  if (!names.length) return;
+  const existing = await fs.readFile(mdPath, 'utf8').catch(() => '');
+  if (!existing) return;
+  const line = `- **Speakers:** ${names.join(', ')}`;
+  const updated = /^- \*\*Speakers:\*\*.*$/m.test(existing)
+    ? existing.replace(/^- \*\*Speakers:\*\*.*$/m, line)
+    : existing.replace(/^(- \*\*Duration:\*\*.*)$/m, `$1\n${line}`);
+  if (updated !== existing) await fs.writeFile(mdPath, updated, 'utf8');
+}
+
 /** Invia il webhook per una singola registrazione. Throwa in caso di fallimento. */
-async function sendWebhook(s: Settings, entry: ProcessedEntry, extra: { transcript?: string; summary?: string; metadata: unknown }): Promise<void> {
+async function sendWebhook(s: Settings, entry: ProcessedEntry, extra: { transcript?: string; summary?: string; metadata: unknown; voice?: unknown }): Promise<void> {
   const payload = {
     event: 'new_recording',
     ...entry,
     transcript: extra.transcript ?? null,
     summary: extra.summary ?? null,
     metadata: extra.metadata,
+    voice: extra.voice ?? null, // full speakers.json: who was identified plus timestamped turns
   };
   const res = await fetch(s.webhook.url, {
     method: 'POST',
@@ -384,6 +404,21 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
       const tag = extractTag(rec.filename);
       const date = toDate(rec.start_time).toISOString().slice(0, 10);
 
+      // Speaker identification runs on the full audio (not the chunks, so labels stay
+      // consistent). A failure never blocks the recording; it is retried on a later poll.
+      let voiceDone = false;
+      let voiceError: string | undefined;
+      let speakers: string[] | undefined;
+      if (s.voice.enabled) {
+        try {
+          speakers = identifiedNames(await runVoiceId(s, audioFile, dir, log));
+          voiceDone = true;
+        } catch (err) {
+          voiceError = (err as Error).message;
+          log(`  voice id failed (will retry): ${voiceError}`);
+        }
+      }
+
       let mdFile: string | undefined;
       let aiEnriched = false;
       let aiError: string | undefined;
@@ -401,6 +436,7 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
           aiCategory: detail.aiCategory,
           aiHeadline: detail.aiHeadline,
           usedTemplate: detail.usedTemplate,
+          speakers,
           plaudSummary: detail.plaudSummary,
           highlights: detail.highlights,
           transcript: detail.transcript,
@@ -433,6 +469,9 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
         mdFile,
         aiEnriched,
         aiError,
+        voiceDone,
+        voiceError,
+        speakers,
       };
       await saveState(s, state);
       result.added++;
@@ -455,6 +494,26 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
     }
   }
 
+  // Retry speaker identification for entries where it failed before. Recordings that were
+  // polled while voice was off (voiceDone/voiceError unset) are left alone; backfill those with
+  // `plaudpoller voices identify <audio>`.
+  if (s.voice.enabled) {
+    for (const entry of Object.values(state.processed)) {
+      if (entry.voiceDone || !entry.voiceError) continue;
+      log(`Retrying voice id for ${entry.id}…`);
+      try {
+        entry.speakers = identifiedNames(await runVoiceId(s, entry.audioFile, entry.dir, log));
+        entry.voiceDone = true;
+        delete entry.voiceError;
+        if (entry.mdFile) await addSpeakersToMarkdown(entry.mdFile, entry.speakers);
+      } catch (err) {
+        entry.voiceError = (err as Error).message;
+        log(`  voice id failed again: ${entry.voiceError}`);
+      }
+      await saveState(s, state);
+    }
+  }
+
   // Webhook: fire for any unnotified entries (including from prior runs)
   if (s.webhook.enabled && s.webhook.url) {
     for (const entry of Object.values(state.processed)) {
@@ -470,7 +529,7 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
         } catch {
           /* metadata optional */
         }
-        await sendWebhook(s, entry, { transcript, summary, metadata });
+        await sendWebhook(s, entry, { transcript, summary, metadata, voice: await loadVoiceResult(entry.dir) });
         entry.notified = true;
         await saveState(s, state);
         result.notified++;
