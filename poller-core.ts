@@ -10,6 +10,8 @@ import { runVoiceId, identifiedNames, loadVoiceResult } from './voice.js';
 
 const execFileP = promisify(execFile);
 
+const MAX_VOICE_ATTEMPTS = 5;
+
 const CONFIG_DIR = process.env.PLAUD_CONFIG_DIR ?? path.join(os.homedir(), '.plaudpoller');
 
 export interface ProcessedEntry {
@@ -30,6 +32,9 @@ export interface ProcessedEntry {
   aiError?: string;
   /** Speaker identification (settings.voice.enabled). Details are in speakers.json next to the audio. */
   voiceDone?: boolean;
+  /** Queued at download time; identification runs after all downloads so it never delays them. */
+  voicePending?: boolean;
+  voiceAttempts?: number;
   voiceError?: string;
   speakers?: string[];
 }
@@ -404,21 +409,6 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
       const tag = extractTag(rec.filename);
       const date = toDate(rec.start_time).toISOString().slice(0, 10);
 
-      // Speaker identification runs on the full audio (not the chunks, so labels stay
-      // consistent). A failure never blocks the recording; it is retried on a later poll.
-      let voiceDone = false;
-      let voiceError: string | undefined;
-      let speakers: string[] | undefined;
-      if (s.voice.enabled) {
-        try {
-          speakers = identifiedNames(await runVoiceId(s, audioFile, dir, log));
-          voiceDone = true;
-        } catch (err) {
-          voiceError = (err as Error).message;
-          log(`  voice id failed (will retry): ${voiceError}`);
-        }
-      }
-
       let mdFile: string | undefined;
       let aiEnriched = false;
       let aiError: string | undefined;
@@ -436,7 +426,6 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
           aiCategory: detail.aiCategory,
           aiHeadline: detail.aiHeadline,
           usedTemplate: detail.usedTemplate,
-          speakers,
           plaudSummary: detail.plaudSummary,
           highlights: detail.highlights,
           transcript: detail.transcript,
@@ -469,9 +458,7 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
         mdFile,
         aiEnriched,
         aiError,
-        voiceDone,
-        voiceError,
-        speakers,
+        voicePending: s.voice.enabled,
       };
       await saveState(s, state);
       result.added++;
@@ -494,21 +481,25 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
     }
   }
 
-  // Retry speaker identification for entries where it failed before. Recordings that were
-  // polled while voice was off (voiceDone/voiceError unset) are left alone; backfill those with
-  // `plaudpoller voices identify <audio>`.
+  // Speaker identification runs here, after every download, on the full audio (not the chunks, so
+  // labels stay consistent). A failure never blocks a recording: it is retried on later polls, up to
+  // MAX_VOICE_ATTEMPTS, so a permanent problem (no HF token, missing venv) doesn't relaunch Python forever.
+  // Recordings polled while voice was off are not pending; backfill those with `plaudpoller voices identify <audio>`.
   if (s.voice.enabled) {
     for (const entry of Object.values(state.processed)) {
-      if (entry.voiceDone || !entry.voiceError) continue;
-      log(`Retrying voice id for ${entry.id}…`);
+      const attempts = entry.voiceAttempts ?? 0;
+      if (entry.voiceDone || !entry.voicePending || attempts >= MAX_VOICE_ATTEMPTS) continue;
+      log(`${attempts ? 'Retrying' : 'Running'} voice id for ${entry.id}…`);
+      entry.voiceAttempts = attempts + 1;
       try {
         entry.speakers = identifiedNames(await runVoiceId(s, entry.audioFile, entry.dir, log));
         entry.voiceDone = true;
+        entry.voicePending = false;
         delete entry.voiceError;
         if (entry.mdFile) await addSpeakersToMarkdown(entry.mdFile, entry.speakers);
       } catch (err) {
         entry.voiceError = (err as Error).message;
-        log(`  voice id failed again: ${entry.voiceError}`);
+        log(`  voice id failed (attempt ${entry.voiceAttempts}/${MAX_VOICE_ATTEMPTS}): ${entry.voiceError}`);
       }
       await saveState(s, state);
     }
