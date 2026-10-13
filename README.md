@@ -37,6 +37,13 @@ plaudpoller rechunk             # only recordings with missing chunks
 plaudpoller rechunk --force     # rebuild every recording's chunks
 ```
 
+**Upgrading to 1.4.0 and checking audio** — after `brew upgrade plaudpoller`, run `plaudpoller version`, then `plaudpoller rechunk` to repair recordings that came in without chunks. To verify a recording came in correctly, look in its folder under `outputDir`:
+
+- `audio.mp3` (or `.m4a`) is non-empty and plays.
+- `chunks/` holds `chunk_000.mp3`, `chunk_001.mp3`, … and their durations add up to the audio's length (`ffprobe -v error -show_entries format=duration -of csv=p=0 audio.mp3`).
+- The poll log says `audio is opus, not mp3; re-encoding chunks to mp3` for Plaud's Ogg/Opus files. That is expected.
+- `~/.plaudpoller/poller.log` has no repeated `ffmpeg chunking failed` lines, and `<outputDir>/.state.json` lists the recording.
+
 **Web GUI + scheduler** — dashboard at `http://localhost:8787` with a configurable poll interval:
 
 ```bash
@@ -62,11 +69,11 @@ Settings are read from `~/.plaudpoller/settings.json` (or `$PLAUD_DATA_DIR/setti
 
 | Setting | Env var | Default | Description |
 |---------|---------|---------|-------------|
-| `outputDir` | `PLAUD_OUTPUT_DIR` | `./exports` | Where recordings are saved |
+| `outputDir` | `PLAUD_OUTPUT_DIR` | `/mnt/nfs/plaud` | Where recordings are saved |
 | `audioFormat` | `PLAUD_AUDIO_FORMAT` | `mp3` | `mp3` or `m4a` (requires ffmpeg) |
-| `pollIntervalMin` | `PLAUD_POLL_INTERVAL_MIN` | `60` | Scheduler interval in minutes |
-| `region` | `PLAUD_REGION` | `us` | `us` or `eu` |
-| `chunkMinutes` | `PLAUD_CHUNK_MINUTES` | `0` | Split audio into chunks (0 = disabled, requires ffmpeg) |
+| `pollIntervalMin` | `PLAUD_POLL_INTERVAL_MIN` | `5` | Scheduler interval in minutes |
+| `region` | `PLAUD_REGION` | `eu` | `us` or `eu` |
+| `chunkMinutes` | `PLAUD_CHUNK_MINUTES` | `10` | Minutes per audio chunk (0 = disabled, requires ffmpeg and ffprobe) |
 | `includeTrash` | `PLAUD_INCLUDE_TRASH` | `false` | Include recordings in the trash when polling |
 | `webhook.enabled` | — | `false` | Enable webhook notifications for new recordings |
 | `webhook.url` | — | — | POST JSON (or multipart) to this URL for each new recording |
@@ -90,6 +97,7 @@ Each new recording is then diarized and every speaker is matched against the dat
 - **Tuning:** the defaults are starting points. Run `plaudpoller voices identify some.m4a --dry-run` to see scores without touching the database, then adjust `voice.threshold` and `voice.margin`.
 - **Transcripts:** `speakers.json` has timestamped turns. To label a Whisper transcript: `plaudpoller voices label speakers.json whisper.json --timestamps`.
 - Speakers with less than `voice.minSpeechSec` of speech are left unidentified. Confident matches (`voice.autoEnrollThreshold`) are added to the person's profile, at most once per recording.
+- **Failures and backfill:** a failed identification never blocks a recording. It is retried on later polls, up to 5 attempts, then left alone (the error is kept in `.state.json` as `voiceError`). Recordings downloaded while `voice.enabled` was off are not picked up automatically; run `plaudpoller voices identify <audio>` on them. The webhook can fire before voice data exists if the first attempt fails; it is not re-sent when a retry later succeeds.
 - Diarization of a long recording takes minutes on CPU. It runs after all downloads in a poll finish, so it never delays them, but the poll does wait for it.
 - **Batch:** `scripts/process-queue.py --queue queue.json --inbox <folder>` runs `voices identify` over audio files named `<recording id>.<ext>` and remembers which ids are done.
 
@@ -121,4 +129,5 @@ Each new recording is then diarized and every speaker is matched against the dat
 
 - macOS (Apple Silicon or Intel)
 - [Google Chrome](https://www.google.com/chrome/) — for `grab-token`
-- [ffmpeg](https://ffmpeg.org/) — optional, required for m4a conversion and audio chunking (`brew install ffmpeg`)
+- [ffmpeg](https://ffmpeg.org/) (includes `ffprobe`) — optional, required for m4a conversion and audio chunking (`brew install ffmpeg`). Chunks are cut losslessly when the audio codec matches its extension; Plaud's Ogg/Opus files saved as `.mp3` are re-encoded to mp3 chunks.
+- Python 3.9+ — optional, only for speaker identification (`brew install python`)
