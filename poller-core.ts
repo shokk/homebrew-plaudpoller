@@ -201,6 +201,51 @@ export async function chunkAudio(audioPath: string, destDir: string, minutes: nu
   return files.map((f) => path.join(chunkDir, f));
 }
 
+export interface RechunkResult {
+  rebuilt: number;
+  skipped: number;
+  failed: number;
+}
+
+/**
+ * Rebuild audio chunks for already-downloaded recordings that have none (for example the
+ * Ogg/Opus files that failed `-c copy` before chunkAudio learned to re-encode). Local only: no
+ * Plaud login or network needed. `force` rebuilds every recording that has audio.
+ */
+export async function rebuildChunks(s: Settings, log: Logger, force = false): Promise<RechunkResult> {
+  const result: RechunkResult = { rebuilt: 0, skipped: 0, failed: 0 };
+  if (!s.chunkMinutes || s.chunkMinutes <= 0) {
+    log('Chunking is disabled (chunkMinutes is 0); nothing to do.');
+    return result;
+  }
+  const state = await loadState(s);
+  for (const entry of Object.values(state.processed)) {
+    const hasAudio = await fs.access(entry.audioFile).then(() => true, () => false);
+    if (!hasAudio) {
+      log(`skip ${entry.id}: audio file not found (${entry.audioFile})`);
+      result.skipped++;
+      continue;
+    }
+    const existing = await Promise.all(entry.chunks.map((c) => fs.access(c).then(() => true, () => false)));
+    if (!force && entry.chunks.length > 0 && existing.every(Boolean)) {
+      result.skipped++;
+      continue;
+    }
+    if (force) await fs.rm(path.join(entry.dir, 'chunks'), { recursive: true, force: true });
+    const chunks = await chunkAudio(entry.audioFile, entry.dir, s.chunkMinutes, log);
+    if (chunks.length === 0) {
+      log(`failed ${entry.id}: no chunks created`);
+      result.failed++;
+      continue;
+    }
+    entry.chunks = chunks;
+    await saveState(s, state);
+    log(`rebuilt ${entry.id}: ${chunks.length} chunks`);
+    result.rebuilt++;
+  }
+  return result;
+}
+
 // ── .md generation ────────────────────────────────────────────────────────────
 
 interface PKMSections {

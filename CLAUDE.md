@@ -16,6 +16,9 @@ PLAUD_EMAIL=you@example.com PLAUD_PASSWORD=secret npm run login
 # Run a single poll cycle and exit
 npm run poll
 
+# Rebuild missing audio chunks for already-downloaded recordings (no login)
+npx tsx src/cli.ts rechunk [--force]
+
 # Start the web GUI + scheduler (default port 8787)
 npm run start
 
@@ -28,7 +31,7 @@ Type-check without emitting:
 npx tsc --noEmit
 ```
 
-There is no linter. The only tests are for the Python voice sidecar (no torch/pyannote needed):
+There is no linter. The only tests are for the Python voice sidecar (needs `numpy` and `scipy` installed; no torch/pyannote):
 ```bash
 npm run test:voice
 ```

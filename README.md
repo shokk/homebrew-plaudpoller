@@ -30,6 +30,13 @@ This opens Chrome, waits for you to log in, then saves the token to `~/.plaud/co
 plaudpoller poll
 ```
 
+**Rebuild missing audio chunks** — for recordings already downloaded that have no `chunks/` (for example Plaud's Ogg/Opus files from before 1.4.0, which failed to split). Local only, no Plaud login needed:
+
+```bash
+plaudpoller rechunk             # only recordings with missing chunks
+plaudpoller rechunk --force     # rebuild every recording's chunks
+```
+
 **Web GUI + scheduler** — dashboard at `http://localhost:8787` with a configurable poll interval:
 
 ```bash
@@ -83,7 +90,8 @@ Each new recording is then diarized and every speaker is matched against the dat
 - **Tuning:** the defaults are starting points. Run `plaudpoller voices identify some.m4a --dry-run` to see scores without touching the database, then adjust `voice.threshold` and `voice.margin`.
 - **Transcripts:** `speakers.json` has timestamped turns. To label a Whisper transcript: `plaudpoller voices label speakers.json whisper.json --timestamps`.
 - Speakers with less than `voice.minSpeechSec` of speech are left unidentified. Confident matches (`voice.autoEnrollThreshold`) are added to the person's profile, at most once per recording.
-- Diarization of a long recording takes minutes on CPU, and the poll waits for it.
+- Diarization of a long recording takes minutes on CPU. It runs after all downloads in a poll finish, so it never delays them, but the poll does wait for it.
+- **Batch:** `scripts/process-queue.py --queue queue.json --inbox <folder>` runs `voices identify` over audio files named `<recording id>.<ext>` and remembers which ids are done.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
