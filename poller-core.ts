@@ -130,32 +130,73 @@ async function downloadAudioTo(
   return dest;
 }
 
+/** Codec of the first audio stream (e.g. "mp3", "aac", "opus"), or undefined if ffprobe is unavailable. */
+async function probeAudioCodec(audioPath: string): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileP('ffprobe', [
+      '-v', 'error', '-select_streams', 'a:0',
+      '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', audioPath,
+    ]);
+    return stdout.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
- * Spezza l'audio originale in chunk da `minutes` minuti (taglio senza
- * ri-codifica, qualità identica) sotto <destDir>/chunks/. Ritorna i path
- * ordinati. Best-effort: se ffmpeg manca o fallisce, ritorna [].
+ * Spezza l'audio originale in chunk da `minutes` minuti sotto <destDir>/chunks/.
+ * Taglio senza ri-codifica quando il codec corrisponde all'estensione (qualità identica).
+ * Plaud serve però anche file Ogg/Opus con estensione .mp3: in quel caso `-c copy` fallisce,
+ * quindi i chunk vengono ri-codificati in mp3. Ritorna i path ordinati. Best-effort: se ffmpeg
+ * manca o fallisce, ritorna [].
  */
-async function chunkAudio(audioPath: string, destDir: string, minutes: number, log: Logger): Promise<string[]> {
+export async function chunkAudio(audioPath: string, destDir: string, minutes: number, log: Logger): Promise<string[]> {
   if (!minutes || minutes <= 0) return [];
   if (!audioPath.endsWith('.mp3') && !audioPath.endsWith('.m4a')) return [];
   const chunkDir = path.join(destDir, 'chunks');
   await fs.mkdir(chunkDir, { recursive: true });
-  try {
+  const segment = ['-f', 'segment', '-segment_time', String(Math.round(minutes * 60)), '-reset_timestamps', '1'];
+  const ext = path.extname(audioPath);
+  const expected = ext === '.mp3' ? 'mp3' : 'aac';
+  const codec = await probeAudioCodec(audioPath);
+
+  const copyChunks = async (): Promise<void> => {
     await execFileP('ffmpeg', [
-      '-y', '-i', audioPath,
-      '-f', 'segment',
-      '-segment_time', String(Math.round(minutes * 60)),
-      '-c', 'copy',
-      '-reset_timestamps', '1',
-      path.join(chunkDir, `chunk_%03d${path.extname(audioPath)}`),
+      '-y', '-i', audioPath, '-map', '0:a:0', '-c', 'copy', ...segment,
+      path.join(chunkDir, `chunk_%03d${ext}`),
     ]);
+  };
+  const reencodeChunks = async (): Promise<void> => {
+    await execFileP('ffmpeg', [
+      '-y', '-i', audioPath, '-map', '0:a:0', '-c:a', 'libmp3lame', '-q:a', '4', ...segment,
+      path.join(chunkDir, 'chunk_%03d.mp3'),
+    ]);
+  };
+
+  let chunkExt = ext;
+  try {
+    if (codec === undefined || codec === expected) {
+      try {
+        await copyChunks();
+      } catch (err) {
+        // codec unknown (no ffprobe) and copy refused: fall back to re-encoding
+        if (codec !== undefined) throw err;
+        await fs.rm(chunkDir, { recursive: true, force: true });
+        await fs.mkdir(chunkDir, { recursive: true });
+        chunkExt = '.mp3';
+        await reencodeChunks();
+      }
+    } else {
+      log(`  audio is ${codec}, not ${expected}; re-encoding chunks to mp3`);
+      chunkExt = '.mp3';
+      await reencodeChunks();
+    }
   } catch (err) {
-    log(`  ffmpeg chunking failed (${(err as Error).message}); skipping chunks`);
+    log(`  ffmpeg chunking failed (${(err as Error).message.split('\n')[0]}); skipping chunks`);
     return [];
   }
-  const ext = path.extname(audioPath);
   const files = (await fs.readdir(chunkDir))
-    .filter((f) => f.startsWith('chunk_') && f.endsWith(ext))
+    .filter((f) => f.startsWith('chunk_') && f.endsWith(chunkExt))
     .sort();
   return files.map((f) => path.join(chunkDir, f));
 }
