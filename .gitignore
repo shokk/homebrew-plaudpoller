@@ -5,3 +5,5 @@ exports/
 xyz-open-plaude-do-not-use/
 .DS_Store
 *.bun-build
+__pycache__/
+*.pyc

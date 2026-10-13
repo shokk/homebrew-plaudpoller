@@ -16,6 +16,9 @@ PLAUD_EMAIL=you@example.com PLAUD_PASSWORD=secret npm run login
 # Run a single poll cycle and exit
 npm run poll
 
+# Rebuild missing audio chunks for already-downloaded recordings (no login)
+npx tsx src/cli.ts rechunk [--force]
+
 # Start the web GUI + scheduler (default port 8787)
 npm run start
 
@@ -28,7 +31,10 @@ Type-check without emitting:
 npx tsc --noEmit
 ```
 
-There are no tests or linter configured.
+There is no linter. The only tests are for the Python voice sidecar (needs `numpy` and `scipy` installed; no torch/pyannote):
+```bash
+npm run test:voice
+```
 
 ## Architecture
 
@@ -41,10 +47,12 @@ There are no tests or linter configured.
 - Authenticates via `@plaud/core` (token stored in `~/.plaud/config.json`)
 - Lists recordings from the Plaud cloud (`region`: `us` | `eu`)
 - Downloads new recordings (mp3, optionally converts to m4a via `ffmpeg`)
-- Optionally splits audio into chunks via `ffmpeg -f segment`
+- Optionally splits audio into chunks via `ffmpeg -f segment` (lossless copy when the codec matches the extension; Plaud's Ogg/Opus files saved as `audio.mp3` are re-encoded to real mp3 chunks)
 - Saves `metadata.json`, `transcript.txt`, `summary.txt` per recording under `outputDir/<date>_<id>_<name>/`
 - Tracks processed recordings in `outputDir/.state.json` (write-via-tmp-rename pattern)
 - Fires an outgoing webhook (POST JSON) for any unnotified entries
+
+**Speaker identification** (opt-in, `settings.voice.enabled`) — `voice.ts` runs the Python sidecar in `voice/` (`identify.py`: pyannote diarization + embeddings; `store.py`: SQLite voiceprint DB; `matching.py`: threshold + margin + one-to-one assignment; `align.py`: merge turns into a Whisper transcript). `runPoll()` marks each new entry `voicePending` when it downloads it, then runs identification for pending entries after all downloads finish (so a long diarization never delays downloads), on the full file (not the chunks). It writes `speakers.json` into the recording dir and records `speakers`/`voiceDone`/`voiceError`/`voiceAttempts` on the `ProcessedEntry`. Failures never block a recording; failed entries are retried on later polls, up to 5 attempts. `scripts/process-queue.py` batch-runs `voices identify` over audio files named `<recording id>.<ext>` in an inbox folder. pyannote can't be bundled into the `bun --compile` binary, so `plaudpoller voices setup` builds a venv in `~/.plaudpoller/voice-venv` and downloads the `plaudpoller-voice.tar.gz` release asset (the scripts only). The Python modules use sibling imports so the `voice/` folder stays self-contained.
 
 **Settings** (`settings.ts`) layer: env vars → `~/.plaudpoller/settings.json` → hardcoded defaults. `sanitizeSettings()` validates GUI input before persisting.
 

@@ -203,7 +203,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   if (p === '/api/settings' && method === 'POST') {
     try {
       const incoming = JSON.parse(await readBody(req));
-      settings = sanitizeSettings(incoming);
+      // The dashboard form has no voice fields; keep the current voice settings instead of resetting them.
+      settings = sanitizeSettings({ voice: settings.voice, ...incoming });
       await saveSettings(settings);
       schedule(); // applica subito il nuovo intervallo
       void log(`Settings updated (interval ${settings.pollIntervalMin} min, webhook ${settings.webhook.enabled ? 'ON' : 'OFF'})`);

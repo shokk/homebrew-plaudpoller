@@ -32,6 +32,11 @@ jobs:
       - name: Build x64
         run: bun build --compile --target=bun-darwin-x64 src/cli.ts --outfile dist/plaudpoller-x64
 
+      - name: Package voice sidecar
+        # pyannote/torch can't live inside the compiled binary; `plaudpoller voices setup`
+        # downloads this tarball (the Python scripts only) next to a locally built venv.
+        run: tar --exclude='__pycache__' --exclude='tests' -czf dist/plaudpoller-voice.tar.gz voice
+
       - name: Compute SHA256
         id: sha
         run: |
@@ -44,6 +49,7 @@ jobs:
           files: |
             dist/plaudpoller-arm64
             dist/plaudpoller-x64
+            dist/plaudpoller-voice.tar.gz
           body: |
             ## SHA256 checksums
 

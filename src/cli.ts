@@ -5,8 +5,10 @@
  * Usage:
  *   plaudpoller grab-token   — capture Google auth token via Chrome
  *   plaudpoller poll         — run one poll cycle and exit
+ *   plaudpoller rechunk      — rebuild missing audio chunks for downloaded recordings
  *   plaudpoller serve        — start the web GUI + scheduler
  *   plaudpoller config       — view or edit settings from the terminal
+ *   plaudpoller voices       — speaker identification (enroll, identify, rename, ...)
  */
 
 import pkg from '../package.json' with { type: 'json' };
@@ -70,6 +72,16 @@ async function main(): Promise<void> {
       const settings = await loadSettings();
       const res = await runPoll(settings, (m) => void log(m));
       if (res.errors > 0) process.exitCode = 1;
+      break;
+    }
+    case 'rechunk': {
+      // Local only: rebuilds missing audio chunks for recordings already on disk. No Plaud login.
+      const { rebuildChunks } = await import('../poller-core.js');
+      const { loadSettings } = await import('../settings.js');
+      const force = args.includes('--force');
+      const res = await rebuildChunks(await loadSettings(), (m) => console.log(m), force);
+      console.log(`Done. Rebuilt: ${res.rebuilt}, skipped: ${res.skipped}, failed: ${res.failed}`);
+      if (res.failed > 0) process.exitCode = 1;
       break;
     }
     case 'set-claude-key': {
@@ -201,6 +213,39 @@ Examples:
       process.exit(1);
       break;
     }
+    case 'voices': {
+      const { loadSettings } = await import('../settings.js');
+      const { setupVoice, voicesPassthrough } = await import('../voice.js');
+      const settings = await loadSettings();
+      const sub = args[0];
+
+      if (!sub || sub === '--help' || sub === '-h' || sub === 'help') {
+        console.log(`Usage: plaudpoller voices <command>
+
+Speaker identification. Names the people in your recordings by matching their voices against
+a local database (${settings.voice.dbPath}). Turn it on with:
+  plaudpoller config set voice.enabled true
+
+Commands:
+  setup                          One-time install of pyannote.audio in ~/.plaudpoller/voice-venv
+  enroll <name> <audio>          Enroll a person from a clip of only them speaking (10s+)
+  identify <audio> [--dry-run]   Name the speakers in an audio file (--dry-run shows scores only)
+  list [--json]                  Show everyone in the database
+  rename <old> <new>             Name a profile, e.g. rename Unknown-007 "Bob Jones"
+  merge <from> <into>            Fold one profile into another (same person split in two)
+  forget <name>                  Delete a profile and its voiceprints
+  label <speakers.json> <whisper.json> [--timestamps] [--out file]
+                                 Merge speaker turns into a whisper transcript (Name: text)
+`);
+        break;
+      }
+      if (sub === 'setup') {
+        await setupVoice(settings, version);
+        break;
+      }
+      process.exitCode = await voicesPassthrough(settings, args);
+      break;
+    }
     case 'serve': {
       await ensureAuth();
       // server.ts has a self-executing main — just import it.
@@ -216,8 +261,10 @@ Commands:
   login              Authenticate with email/password (set PLAUD_EMAIL and PLAUD_PASSWORD)
   set-claude-key     Store Anthropic API key in Keychain for AI note enrichment
   poll               Run one poll cycle and exit
+  rechunk [--force]  Rebuild missing audio chunks for downloaded recordings (no login needed)
   serve              Start the web GUI + background scheduler (default port 8787)
   config             View or edit settings (plaudpoller config --help for details)
+  voices             Speaker identification (plaudpoller voices --help for details)
   version            Print version number
 `);
       process.exit(cmd ? 1 : 0);

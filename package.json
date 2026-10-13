@@ -1,6 +1,6 @@
 {
   "name": "plaud-poller",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "type": "module",
   "private": true,
   "scripts": {
@@ -8,6 +8,7 @@
     "login": "tsx plaud-login.ts",
     "poll": "tsx plaud-poller.ts",
     "start": "tsx server.ts",
+    "test:voice": "python3 -m unittest discover -s voice/tests -v",
     "update-core": "git submodule update --remote poller/plaud-toolkit"
   },
   "dependencies": {},

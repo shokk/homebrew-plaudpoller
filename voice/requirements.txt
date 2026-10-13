@@ -1,0 +1,4 @@
+numpy
+scipy
+torch
+pyannote.audio>=3.3,<4

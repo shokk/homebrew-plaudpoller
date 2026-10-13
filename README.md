@@ -30,6 +30,13 @@ This opens Chrome, waits for you to log in, then saves the token to `~/.plaud/co
 plaudpoller poll
 ```
 
+**Rebuild missing audio chunks** — for recordings already downloaded that have no `chunks/` (for example Plaud's Ogg/Opus files from before 1.4.0, which failed to split). Local only, no Plaud login needed:
+
+```bash
+plaudpoller rechunk             # only recordings with missing chunks
+plaudpoller rechunk --force     # rebuild every recording's chunks
+```
+
 **Web GUI + scheduler** — dashboard at `http://localhost:8787` with a configurable poll interval:
 
 ```bash
@@ -65,6 +72,39 @@ Settings are read from `~/.plaudpoller/settings.json` (or `$PLAUD_DATA_DIR/setti
 | `webhook.url` | — | — | POST JSON (or multipart) to this URL for each new recording |
 | `webhook.mode` | — | `metadata` | `metadata` (JSON + path) or `multipart` (binary file) |
 
+## Speaker identification (optional)
+
+PlaudPoller can name the people in a recording by matching their voices against a local database. Everything runs on your machine; no audio leaves it. It is off by default.
+
+```bash
+plaudpoller voices setup                      # one-time: Python venv + pyannote.audio (a few minutes)
+export HF_TOKEN=hf_...                        # Hugging Face read token; accept the pyannote model terms first
+plaudpoller config set voice.enabled true
+plaudpoller voices enroll "Your Name" me.m4a  # a clip of only you speaking, 10s or more
+```
+
+Each new recording is then diarized and every speaker is matched against the database (SQLite, `~/.plaudpoller/voices.db`). The result is written to `speakers.json` next to the audio, a `Speakers:` line is added to the note, and the same data goes in the webhook payload under `voice`.
+
+- **Unknown voices** get an `Unknown-001`-style profile so the same person is recognised next time. Name them with `plaudpoller voices rename Unknown-001 "Bob Jones"`. If one person ended up with two profiles, `plaudpoller voices merge`.
+- **Round tables:** matching is one-to-one within a recording (two speakers can never both be the same person), and a match must beat the runner-up by `voice.margin`, so false matches stay rare as the database grows. Set `voice.maxSpeakers` to bound diarization.
+- **Tuning:** the defaults are starting points. Run `plaudpoller voices identify some.m4a --dry-run` to see scores without touching the database, then adjust `voice.threshold` and `voice.margin`.
+- **Transcripts:** `speakers.json` has timestamped turns. To label a Whisper transcript: `plaudpoller voices label speakers.json whisper.json --timestamps`.
+- Speakers with less than `voice.minSpeechSec` of speech are left unidentified. Confident matches (`voice.autoEnrollThreshold`) are added to the person's profile, at most once per recording.
+- Diarization of a long recording takes minutes on CPU. It runs after all downloads in a poll finish, so it never delays them, but the poll does wait for it.
+- **Batch:** `scripts/process-queue.py --queue queue.json --inbox <folder>` runs `voices identify` over audio files named `<recording id>.<ext>` and remembers which ids are done.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `voice.enabled` | `false` | Identify speakers in new recordings |
+| `voice.threshold` | `0.55` | Minimum cosine similarity for a match |
+| `voice.margin` | `0.05` | Lead over the next-best person required |
+| `voice.autoEnrollThreshold` | `0.75` | Only matches this strong grow a profile |
+| `voice.minSpeechSec` | `10` | Skip speakers with less speech than this |
+| `voice.maxSpeakers` | `0` | Diarization upper bound (0 = automatic) |
+| `voice.createUnknown` / `voice.autoEnroll` | `true` | Create `Unknown-NNN` profiles / grow profiles automatically |
+| `voice.device` | `cpu` | `cpu`, `mps` or `cuda` |
+| `voice.dbPath`, `voice.pythonPath` | `~/.plaudpoller/…` | Database and Python locations |
+
 ## Output layout
 
 ```
@@ -74,6 +114,7 @@ Settings are read from `~/.plaudpoller/settings.json` (or `$PLAUD_DATA_DIR/setti
     metadata.json
     transcript.txt
     summary.txt
+    speakers.json      # only with voice.enabled
 ```
 
 ## Requirements

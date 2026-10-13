@@ -12,6 +12,32 @@ export interface WebhookSettings {
   mode: 'metadata' | 'multipart';
 }
 
+export type VoiceDevice = 'cpu' | 'mps' | 'cuda';
+
+/** Speaker identification (opt-in). Runs the Python sidecar in voice/. */
+export interface VoiceSettings {
+  enabled: boolean;
+  /** Python with pyannote.audio installed; `plaudpoller voices setup` creates this venv. */
+  pythonPath: string;
+  /** SQLite voiceprint database. */
+  dbPath: string;
+  device: VoiceDevice;
+  /** Minimum cosine similarity for a match. Calibrate on your own recordings. */
+  threshold: number;
+  /** A match must beat the next-best person by at least this much. */
+  margin: number;
+  /** Only grow a profile from matches at least this strong. */
+  autoEnrollThreshold: number;
+  /** Speakers with less speech than this are left unidentified. */
+  minSpeechSec: number;
+  /** Upper bound passed to diarization; 0 = automatic. */
+  maxSpeakers: number;
+  /** Create Unknown-NNN profiles for voices that match nobody. */
+  createUnknown: boolean;
+  /** Add confident matches to the person's profile. */
+  autoEnroll: boolean;
+}
+
 export interface Settings {
   outputDir: string;
   region: Region;
@@ -21,6 +47,7 @@ export interface Settings {
   /** minuti per chunk audio (per la trascrizione); 0 = nessun chunk */
   chunkMinutes: number;
   webhook: WebhookSettings;
+  voice: VoiceSettings;
 }
 
 export const DATA_DIR = process.env.PLAUD_DATA_DIR ?? path.join(os.homedir(), '.plaudpoller');
@@ -40,6 +67,19 @@ export function defaultSettings(): Settings {
     pollIntervalMin: Number(process.env.PLAUD_POLL_INTERVAL_MIN ?? 5),
     chunkMinutes: Number(process.env.PLAUD_CHUNK_MINUTES ?? 10),
     webhook: { enabled: false, url: '', mode: 'metadata' },
+    voice: {
+      enabled: false,
+      pythonPath: path.join(DATA_DIR, 'voice-venv', 'bin', 'python'),
+      dbPath: path.join(DATA_DIR, 'voices.db'),
+      device: 'cpu',
+      threshold: 0.55,
+      margin: 0.05,
+      autoEnrollThreshold: 0.75,
+      minSpeechSec: 10,
+      maxSpeakers: 0,
+      createUnknown: true,
+      autoEnroll: true,
+    },
   };
 }
 
@@ -48,7 +88,12 @@ export async function loadSettings(): Promise<Settings> {
     const raw = await fs.readFile(SETTINGS_FILE, 'utf8');
     const parsed = JSON.parse(raw) as Partial<Settings>;
     const d = defaultSettings();
-    return { ...d, ...parsed, webhook: { ...d.webhook, ...(parsed.webhook ?? {}) } };
+    return {
+      ...d,
+      ...parsed,
+      webhook: { ...d.webhook, ...(parsed.webhook ?? {}) },
+      voice: { ...d.voice, ...(parsed.voice ?? {}) },
+    };
   } catch {
     return defaultSettings();
   }
@@ -62,6 +107,30 @@ export async function saveSettings(s: Settings): Promise<void> {
 }
 
 /** Validazione/sanitizzazione di un payload settings ricevuto dalla GUI. */
+function clampNum(value: unknown, fallback: number, min: number, max: number): number {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+}
+
+function sanitizeVoice(input: unknown, d: VoiceSettings): VoiceSettings {
+  const v = (input ?? {}) as Record<string, unknown>;
+  const str = (x: unknown, fallback: string): string => (typeof x === 'string' && x.trim() ? x.trim() : fallback);
+  const bool = (x: unknown, fallback: boolean): boolean => (x === undefined ? fallback : Boolean(x));
+  return {
+    enabled: bool(v.enabled, d.enabled),
+    pythonPath: str(v.pythonPath, d.pythonPath),
+    dbPath: str(v.dbPath, d.dbPath),
+    device: v.device === 'mps' || v.device === 'cuda' || v.device === 'cpu' ? v.device : d.device,
+    threshold: clampNum(v.threshold, d.threshold, 0, 1),
+    margin: clampNum(v.margin, d.margin, 0, 1),
+    autoEnrollThreshold: clampNum(v.autoEnrollThreshold, d.autoEnrollThreshold, 0, 1),
+    minSpeechSec: clampNum(v.minSpeechSec, d.minSpeechSec, 0, 600),
+    maxSpeakers: Math.round(clampNum(v.maxSpeakers, d.maxSpeakers, 0, 50)),
+    createUnknown: bool(v.createUnknown, d.createUnknown),
+    autoEnroll: bool(v.autoEnroll, d.autoEnroll),
+  };
+}
+
 export function sanitizeSettings(input: unknown): Settings {
   const d = defaultSettings();
   const i = (input ?? {}) as Record<string, unknown>;
@@ -78,5 +147,6 @@ export function sanitizeSettings(input: unknown): Settings {
       url: typeof wh.url === 'string' ? wh.url.trim() : '',
       mode: wh.mode === 'multipart' ? 'multipart' : 'metadata',
     },
+    voice: sanitizeVoice(i.voice, d.voice),
   };
 }

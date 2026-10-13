@@ -6,8 +6,11 @@ import * as os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { Settings } from './settings.js';
+import { runVoiceId, identifiedNames, loadVoiceResult } from './voice.js';
 
 const execFileP = promisify(execFile);
+
+const MAX_VOICE_ATTEMPTS = 5;
 
 const CONFIG_DIR = process.env.PLAUD_CONFIG_DIR ?? path.join(os.homedir(), '.plaudpoller');
 
@@ -27,6 +30,13 @@ export interface ProcessedEntry {
   mdFile?: string;
   aiEnriched: boolean;
   aiError?: string;
+  /** Speaker identification (settings.voice.enabled). Details are in speakers.json next to the audio. */
+  voiceDone?: boolean;
+  /** Queued at download time; identification runs after all downloads so it never delays them. */
+  voicePending?: boolean;
+  voiceAttempts?: number;
+  voiceError?: string;
+  speakers?: string[];
 }
 
 export interface State {
@@ -120,34 +130,120 @@ async function downloadAudioTo(
   return dest;
 }
 
+/** Codec of the first audio stream (e.g. "mp3", "aac", "opus"), or undefined if ffprobe is unavailable. */
+async function probeAudioCodec(audioPath: string): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileP('ffprobe', [
+      '-v', 'error', '-select_streams', 'a:0',
+      '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', audioPath,
+    ]);
+    return stdout.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
- * Spezza l'audio originale in chunk da `minutes` minuti (taglio senza
- * ri-codifica, qualità identica) sotto <destDir>/chunks/. Ritorna i path
- * ordinati. Best-effort: se ffmpeg manca o fallisce, ritorna [].
+ * Spezza l'audio originale in chunk da `minutes` minuti sotto <destDir>/chunks/.
+ * Taglio senza ri-codifica quando il codec corrisponde all'estensione (qualità identica).
+ * Plaud serve però anche file Ogg/Opus con estensione .mp3: in quel caso `-c copy` fallisce,
+ * quindi i chunk vengono ri-codificati in mp3. Ritorna i path ordinati. Best-effort: se ffmpeg
+ * manca o fallisce, ritorna [].
  */
-async function chunkAudio(audioPath: string, destDir: string, minutes: number, log: Logger): Promise<string[]> {
+export async function chunkAudio(audioPath: string, destDir: string, minutes: number, log: Logger): Promise<string[]> {
   if (!minutes || minutes <= 0) return [];
   if (!audioPath.endsWith('.mp3') && !audioPath.endsWith('.m4a')) return [];
   const chunkDir = path.join(destDir, 'chunks');
   await fs.mkdir(chunkDir, { recursive: true });
-  try {
+  const segment = ['-f', 'segment', '-segment_time', String(Math.round(minutes * 60)), '-reset_timestamps', '1'];
+  const ext = path.extname(audioPath);
+  const expected = ext === '.mp3' ? 'mp3' : 'aac';
+  const codec = await probeAudioCodec(audioPath);
+
+  const copyChunks = async (): Promise<void> => {
     await execFileP('ffmpeg', [
-      '-y', '-i', audioPath,
-      '-f', 'segment',
-      '-segment_time', String(Math.round(minutes * 60)),
-      '-c', 'copy',
-      '-reset_timestamps', '1',
-      path.join(chunkDir, `chunk_%03d${path.extname(audioPath)}`),
+      '-y', '-i', audioPath, '-map', '0:a:0', '-c', 'copy', ...segment,
+      path.join(chunkDir, `chunk_%03d${ext}`),
     ]);
+  };
+  const reencodeChunks = async (): Promise<void> => {
+    await execFileP('ffmpeg', [
+      '-y', '-i', audioPath, '-map', '0:a:0', '-c:a', 'libmp3lame', '-q:a', '4', ...segment,
+      path.join(chunkDir, 'chunk_%03d.mp3'),
+    ]);
+  };
+
+  let chunkExt = ext;
+  try {
+    if (codec === undefined || codec === expected) {
+      try {
+        await copyChunks();
+      } catch (err) {
+        // codec unknown (no ffprobe) and copy refused: fall back to re-encoding
+        if (codec !== undefined) throw err;
+        await fs.rm(chunkDir, { recursive: true, force: true });
+        await fs.mkdir(chunkDir, { recursive: true });
+        chunkExt = '.mp3';
+        await reencodeChunks();
+      }
+    } else {
+      log(`  audio is ${codec}, not ${expected}; re-encoding chunks to mp3`);
+      chunkExt = '.mp3';
+      await reencodeChunks();
+    }
   } catch (err) {
-    log(`  ffmpeg chunking failed (${(err as Error).message}); skipping chunks`);
+    log(`  ffmpeg chunking failed (${(err as Error).message.split('\n')[0]}); skipping chunks`);
     return [];
   }
-  const ext = path.extname(audioPath);
   const files = (await fs.readdir(chunkDir))
-    .filter((f) => f.startsWith('chunk_') && f.endsWith(ext))
+    .filter((f) => f.startsWith('chunk_') && f.endsWith(chunkExt))
     .sort();
   return files.map((f) => path.join(chunkDir, f));
+}
+
+export interface RechunkResult {
+  rebuilt: number;
+  skipped: number;
+  failed: number;
+}
+
+/**
+ * Rebuild audio chunks for already-downloaded recordings that have none (for example the
+ * Ogg/Opus files that failed `-c copy` before chunkAudio learned to re-encode). Local only: no
+ * Plaud login or network needed. `force` rebuilds every recording that has audio.
+ */
+export async function rebuildChunks(s: Settings, log: Logger, force = false): Promise<RechunkResult> {
+  const result: RechunkResult = { rebuilt: 0, skipped: 0, failed: 0 };
+  if (!s.chunkMinutes || s.chunkMinutes <= 0) {
+    log('Chunking is disabled (chunkMinutes is 0); nothing to do.');
+    return result;
+  }
+  const state = await loadState(s);
+  for (const entry of Object.values(state.processed)) {
+    const hasAudio = await fs.access(entry.audioFile).then(() => true, () => false);
+    if (!hasAudio) {
+      log(`skip ${entry.id}: audio file not found (${entry.audioFile})`);
+      result.skipped++;
+      continue;
+    }
+    const existing = await Promise.all(entry.chunks.map((c) => fs.access(c).then(() => true, () => false)));
+    if (!force && entry.chunks.length > 0 && existing.every(Boolean)) {
+      result.skipped++;
+      continue;
+    }
+    if (force) await fs.rm(path.join(entry.dir, 'chunks'), { recursive: true, force: true });
+    const chunks = await chunkAudio(entry.audioFile, entry.dir, s.chunkMinutes, log);
+    if (chunks.length === 0) {
+      log(`failed ${entry.id}: no chunks created`);
+      result.failed++;
+      continue;
+    }
+    entry.chunks = chunks;
+    await saveState(s, state);
+    log(`rebuilt ${entry.id}: ${chunks.length} chunks`);
+    result.rebuilt++;
+  }
+  return result;
 }
 
 // ── .md generation ────────────────────────────────────────────────────────────
@@ -219,6 +315,7 @@ function buildMarkdown(params: {
   aiCategory?: string;
   aiHeadline?: string;
   usedTemplate?: string;
+  speakers?: string[];
   plaudSummary?: string;
   highlights?: string;
   transcript?: string;
@@ -240,6 +337,7 @@ function buildMarkdown(params: {
     `- **Date:** ${params.date}`,
     `- **Tag:** ${params.tag}`,
     `- **Duration:** ${mins} min`,
+    params.speakers?.length && `- **Speakers:** ${params.speakers.join(', ')}`,
     params.usedTemplate && `- **Template:** ${params.usedTemplate}`,
   ].filter(Boolean).join('\n');
 
@@ -295,14 +393,27 @@ async function enrichWithAI(
   }
 }
 
+/** Add or refresh the "Speakers" line in an existing note (used when voice id succeeds on a retry). */
+async function addSpeakersToMarkdown(mdPath: string, names: string[]): Promise<void> {
+  if (!names.length) return;
+  const existing = await fs.readFile(mdPath, 'utf8').catch(() => '');
+  if (!existing) return;
+  const line = `- **Speakers:** ${names.join(', ')}`;
+  const updated = /^- \*\*Speakers:\*\*.*$/m.test(existing)
+    ? existing.replace(/^- \*\*Speakers:\*\*.*$/m, line)
+    : existing.replace(/^(- \*\*Duration:\*\*.*)$/m, `$1\n${line}`);
+  if (updated !== existing) await fs.writeFile(mdPath, updated, 'utf8');
+}
+
 /** Invia il webhook per una singola registrazione. Throwa in caso di fallimento. */
-async function sendWebhook(s: Settings, entry: ProcessedEntry, extra: { transcript?: string; summary?: string; metadata: unknown }): Promise<void> {
+async function sendWebhook(s: Settings, entry: ProcessedEntry, extra: { transcript?: string; summary?: string; metadata: unknown; voice?: unknown }): Promise<void> {
   const payload = {
     event: 'new_recording',
     ...entry,
     transcript: extra.transcript ?? null,
     summary: extra.summary ?? null,
     metadata: extra.metadata,
+    voice: extra.voice ?? null, // full speakers.json: who was identified plus timestamped turns
   };
   const res = await fetch(s.webhook.url, {
     method: 'POST',
@@ -433,6 +544,7 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
         mdFile,
         aiEnriched,
         aiError,
+        voicePending: s.voice.enabled,
       };
       await saveState(s, state);
       result.added++;
@@ -455,6 +567,30 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
     }
   }
 
+  // Speaker identification runs here, after every download, on the full audio (not the chunks, so
+  // labels stay consistent). A failure never blocks a recording: it is retried on later polls, up to
+  // MAX_VOICE_ATTEMPTS, so a permanent problem (no HF token, missing venv) doesn't relaunch Python forever.
+  // Recordings polled while voice was off are not pending; backfill those with `plaudpoller voices identify <audio>`.
+  if (s.voice.enabled) {
+    for (const entry of Object.values(state.processed)) {
+      const attempts = entry.voiceAttempts ?? 0;
+      if (entry.voiceDone || !entry.voicePending || attempts >= MAX_VOICE_ATTEMPTS) continue;
+      log(`${attempts ? 'Retrying' : 'Running'} voice id for ${entry.id}…`);
+      entry.voiceAttempts = attempts + 1;
+      try {
+        entry.speakers = identifiedNames(await runVoiceId(s, entry.audioFile, entry.dir, log));
+        entry.voiceDone = true;
+        entry.voicePending = false;
+        delete entry.voiceError;
+        if (entry.mdFile) await addSpeakersToMarkdown(entry.mdFile, entry.speakers);
+      } catch (err) {
+        entry.voiceError = (err as Error).message;
+        log(`  voice id failed (attempt ${entry.voiceAttempts}/${MAX_VOICE_ATTEMPTS}): ${entry.voiceError}`);
+      }
+      await saveState(s, state);
+    }
+  }
+
   // Webhook: fire for any unnotified entries (including from prior runs)
   if (s.webhook.enabled && s.webhook.url) {
     for (const entry of Object.values(state.processed)) {
@@ -470,7 +606,7 @@ export async function runPoll(s: Settings, log: Logger): Promise<PollResult> {
         } catch {
           /* metadata optional */
         }
-        await sendWebhook(s, entry, { transcript, summary, metadata });
+        await sendWebhook(s, entry, { transcript, summary, metadata, voice: await loadVoiceResult(entry.dir) });
         entry.notified = true;
         await saveState(s, state);
         result.notified++;
